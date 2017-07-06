@@ -52,14 +52,14 @@ def read_hosts_file(filename):
 
 BACKUP_PLAN = yaml.load(open('backup-plan.yaml'))
 def get_all_backups(host):
-    for i in BACKUP_PLAN.get("all",{}).get("paths",[]):
+    for i in (BACKUP_PLAN.get("all") or {}).get("paths",[]):
         yield i
-    for i in BACKUP_PLAN.get(host,{}).get("paths",[]):
+    for i in (BACKUP_PLAN.get(host) or {}).get("paths",[]):
         yield i
 def get_all_pres(host):
-    for i in BACKUP_PLAN.get("all",{}).get("pre",[]):
+    for i in (BACKUP_PLAN.get("all") or {}).get("pre",[]):
         yield i
-    for i in BACKUP_PLAN.get(host,{}).get("pre",[]):
+    for i in (BACKUP_PLAN.get(host) or {}).get("pre",[]):
         yield i
 
 
