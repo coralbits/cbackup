@@ -93,7 +93,11 @@ def main():
 
     for h in hosts:
         logging.info("BACKUP %s", h)
-        for pre in get_all_pres(h["host"]):
+        host = h["host"]
+        if '@' in host:
+            host = host.split('@')[1]
+
+        for pre in get_all_pres(host):
             logging.info("Run %s", pre)
             pre = shlex.split(pre)
             ssh, sudo = parse_ssh_options(h)
@@ -101,7 +105,7 @@ def main():
                 sh.ssh(*ssh, "--", *sudo, *pre)
             except Exception as e:
                 logging.error(e)
-        for path in get_all_backups(h["host"]):
+        for path in get_all_backups(host):
             outfile = "%s/%s-%s-%s.tgz" % (
                 destdir, date, h['host'], path.replace('/', '-'))
             print(h, path, outfile)
