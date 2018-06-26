@@ -191,14 +191,14 @@ Run:
 
 
 Needs a backup-plan.yaml with:
-  all: {pre, backup, post}
-  hostname: {pre, backup, post}
+  all: {pre, paths, post}
+  hostname: {pre, paths, post}
 
   `all` will be executed for all hosts.
 
 Where {pre, backup, post} are lists of:
   `pre`    commands to execute on the remote server before backup: setup
-  `backup` diretories (end with /) or files to backup
+  `paths`  directories (end with /) or files to backup
   `post`   commands to execute on the remote server after backup: cleanup
 
 Options:
