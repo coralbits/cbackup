@@ -12,6 +12,7 @@ import traceback
 simulate = False
 date = datetime.datetime.now().strftime("%Y%m%d")
 destdir = None
+incremental = False
 
 
 logging.basicConfig(filename='backups.log', level=logging.INFO,
@@ -62,7 +63,10 @@ def backup(host, path):
     if path.endswith('/'):
         outfile = "%s/%s-%s-%s.tgz" % (
             destdir, date, host['host'], path.replace('/', '-'))
-        ok = ssh(host, "tar", "cz", path, _out=outfile)
+        if incremental:
+            ok = ssh(host, "find", path, "-mtime", "-1.5", "|", "xargs", "tar", "--no-recursion", "cz", path, _out=outfile)
+        else:
+            ok = ssh(host, "tar", "cz", path, _out=outfile)
     else:
         outfile = "%s/%s-%s-%s" % (
             destdir, date, host['host'], path.replace('/', '-'),
@@ -143,6 +147,7 @@ def backup_host(h):
 def main():
     global simulate
     global destdir
+    global incremental
 
     logging.info("---- STARTING NEW BACKUP ----")
     destdir = sys.argv[1]
@@ -152,6 +157,11 @@ def main():
     if '--simulate' in sys.argv:
         sys.argv = [x for x in sys.argv if x != '--simulate']
         simulate = True
+
+    if '--incremental' in sys.argv:
+        sys.argv = [x for x in sys.argv if x != '--incremental']
+        incremental = True
+
 
     if len(sys.argv) > 2:
         hosts = [parse_host_line(x) for x in sys.argv[2:]]
