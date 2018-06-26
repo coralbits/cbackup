@@ -6,6 +6,13 @@ import os
 import yaml
 import logging
 import shlex
+import traceback
+
+# set to true, to only print actions
+simulate = False
+date = datetime.datetime.now().strftime("%Y%m%d")
+destdir = None
+
 
 logging.basicConfig(filename='backups.log', level=logging.INFO,
                     format='%(levelname)s -- %(asctime)s -- %(message)s',
@@ -14,7 +21,7 @@ logging.getLogger().addHandler(logging.StreamHandler())
 
 
 def parse_ssh_options(host):
-    ssh_opts = [host.get('host')]
+    ssh_opts = [host.get('host'), "-C"]
     sudo = []
     if host.get('ansible_become', 'no') == 'yes':
         sudo = ["sudo"]
@@ -25,22 +32,52 @@ def parse_ssh_options(host):
     return (ssh_opts, sudo)
 
 
-def backup(host, path, tofile):
+def ssh(host, *cmd, **kwargs):
+    logging.info("Run %s:'%s'" % (host, "' '".join(cmd)))
+    if simulate:
+        return True
+    ssh_opts, sudo = parse_ssh_options(host)
+    try:
+        sh.ssh(*ssh_opts, "--", *sudo, *cmd, **kwargs)
+        return True
+    except Exception as e:
+        logging.error("Error executing SSH %s -- '%s': %s" % (host, "' '".join(cmd), e))
+        return False
+
+def encrypt(gpg_key, filename):
+    logging.info("Encrypt %s" % filename)
+    if simulate:
+        return True
+    try:
+        sh.gpg2("-e", "-r", gpg_key, filename)
+        os.unlink(filename)
+    except:
+        logging.error("Could not encrypt %s" % filename)
+        traceback.print_exc()
+
+
+def backup(host, path):
     logging.info("Backup of %s:/%s" % (host["host"], path))
 
-    ssh_opts, sudo = parse_ssh_options(host)
+    if path.endswith('/'):
+        outfile = "%s/%s-%s-%s.tgz" % (
+            destdir, date, host['host'], path.replace('/', '-'))
+        ok = ssh(host, "tar", "cz", path, _out=outfile)
+    else:
+        outfile = "%s/%s-%s-%s" % (
+            destdir, date, host['host'], path.replace('/', '-'),
+        )
+        ok = ssh(host, "cat", path, _out=outfile)
 
-    try:
-        sh.ssh(*ssh_opts, "--", *sudo, "tar cz", path, _out=tofile)
-    except Exception as e:
-        logging.error(e)
-    try:
-        size = os.path.getsize(tofile)
-        assert size > 0
-        logging.info("%s -- %.2f MB" % (tofile, size / (1024 * 1024.0)))
-    except Exception:
-        logging.warning("FILE NOT CREATED")
+    if ok and not simulate:
+        try:
+            size = os.path.getsize(outfile)
+            assert size > 0
+            logging.info("%s -- %.2f MB" % (outfile, size / (1024 * 1024.0)))
+        except Exception:
+            logging.warning("FILE NOT CREATED")
 
+    return outfile
 
 def parse_host_line(line):
     line = line.split()
@@ -62,68 +99,67 @@ def read_hosts_file(filename):
     return ret
 
 
-BACKUP_PLAN = yaml.load(open('backup-plan.yaml'))
+BACKUP_PLAN = yaml.safe_load(open('backup-plan.yaml'))
 
 
-def get_all_backups(host):
-    for i in (BACKUP_PLAN.get("all") or {}).get("paths", []):
+def get_all(host, what):
+    for i in (BACKUP_PLAN.get("all") or {}).get(what, []):
         yield i
-    for i in (BACKUP_PLAN.get(host) or {}).get("paths", []):
+    for i in (BACKUP_PLAN.get(host) or {}).get(what, []):
         yield i
 
+def backup_host(h):
+    logging.info("BACKUP %s", h)
+    host = h["host"]
+    if '@' in host:
+        host = host.split('@')[1]
 
-def get_all_pres(host):
-    for i in (BACKUP_PLAN.get("all") or {}).get("pre", []):
-        yield i
-    for i in (BACKUP_PLAN.get(host) or {}).get("pre", []):
-        yield i
+    ok = True
+    for pre in get_all(host, 'pre'):
+        pre = shlex.split(pre)
+        ok = ok and ssh(h, *pre)
+
+    if not ok:
+        logging.error("Do not perform backup for %s" % h)
+    else:
+        for path in get_all(host, 'paths'):
+            outfile = backup(h, path)
+            try:
+                os.unlink("%s.gpg" % outfile)
+            except Exception:
+                pass
+            gpg_key = h.get('gpg_key')
+            if not gpg_key:
+                gpg_key = BACKUP_PLAN["all"].get("gpg_key")
+            if gpg_key:
+                encrypt(gpg_key, outfile)
+
+    # post always, as is cleanup
+    for post in get_all(host, 'post'):
+        post = shlex.split(post)
+        ssh(h, *post)
 
 
 def main():
+    global simulate
+    global destdir
+
     logging.info("---- STARTING NEW BACKUP ----")
     destdir = sys.argv[1]
     assert os.path.isdir(destdir), \
         "Need a backup directory file as first argument"
 
+    if '--simulate' in sys.argv:
+        sys.argv = [x for x in sys.argv if x != '--simulate']
+        simulate = True
+
     if len(sys.argv) > 2:
         hosts = [parse_host_line(x) for x in sys.argv[2:]]
     else:
         hosts = read_hosts_file("hosts")
-    date = datetime.datetime.now().strftime("%Y%m%d")
 
     for h in hosts:
-        logging.info("BACKUP %s", h)
-        host = h["host"]
-        if '@' in host:
-            host = host.split('@')[1]
-
-        for pre in get_all_pres(host):
-            logging.info("Run %s", pre)
-            pre = shlex.split(pre)
-            ssh, sudo = parse_ssh_options(h)
-            try:
-                sh.ssh(*ssh, "--", *sudo, *pre)
-            except Exception as e:
-                logging.error(e)
-        for path in get_all_backups(host):
-            outfile = "%s/%s-%s-%s.tgz" % (
-                destdir, date, h['host'], path.replace('/', '-'))
-            print(h, path, outfile)
-            backup(h, path, outfile)
-            try:
-                os.unlink("%s.gpg" % outfile)
-            except Exception:
-                pass
-            logging.info("Encrypt %s" % outfile)
-            gpg_key = h.get('gpg_key')
-            if not gpg_key:
-                gpg_key = BACKUP_PLAN["all"].get("gpg_key")
-            if gpg_key:
-                sh.gpg2("-e", "-r", gpg_key, outfile)
-                try:
-                    os.unlink(outfile)
-                except Exception:
-                    pass
+        backup_host(h)
 
 
 if __name__ == '__main__':
