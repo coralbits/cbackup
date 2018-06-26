@@ -18,7 +18,7 @@ destdir = None
 incremental = False
 
 
-logging.basicConfig(filename='backups.log', level=logging.DEBUG,
+logging.basicConfig(filename='backups.log', level=logging.INFO,
                     format='%(levelname)s -- %(asctime)s -- %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S')
 # logging.getLogger().addHandler(logging.StreamHandler())
@@ -35,14 +35,18 @@ class ColoredHandler(logging.Handler):
         50: '\033[1;31m',
     }
     RESET = '\033[1;m'
-    FORMAT = '[%(datetime)s] [%(levelname)s] %(color)s%(message)s%(reset)s'
+    FORMAT = '{levelname:5} -- {datetime} -- {color}{message}{reset}'
     def handle(self, record):
         color = ColoredHandler.LEVEL_TO_COLOR[record.levelno]
-        print(ColoredHandler.FORMAT % dict(
+        try:
+            message = record.msg % record.args
+        except:
+            message = record.msg
+        print(ColoredHandler.FORMAT.format(
             color=color,
             reset=ColoredHandler.RESET,
-            datetime="",
-            message=record.msg % record.args,
+            datetime=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            message=message,
             levelname=record.levelname
             ))
 
@@ -63,7 +67,7 @@ def parse_ssh_options(host):
 
 
 def ssh(host, *cmd, **kwargs):
-    logging.debug("Run %s:'%s'" % (host["host"], "' '".join(cmd)))
+    logging.info("Run %s:'%s'" % (host["host"], "' '".join(cmd)))
     if simulate:
         return True
     ssh_opts, sudo = parse_ssh_options(host)
@@ -75,7 +79,7 @@ def ssh(host, *cmd, **kwargs):
         return False
 
 def encrypt(gpg_key, filename):
-    logging.debug("Encrypt %s" % filename)
+    logging.info("Encrypt %s" % filename)
     if simulate:
         return True
     try:
