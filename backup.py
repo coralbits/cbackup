@@ -7,6 +7,9 @@ import yaml
 import logging
 import shlex
 import traceback
+import getopt
+
+VERSION = '0.1'
 
 # set to true, to only print actions
 simulate = False
@@ -15,10 +18,36 @@ destdir = None
 incremental = False
 
 
-logging.basicConfig(filename='backups.log', level=logging.INFO,
+logging.basicConfig(filename='backups.log', level=logging.DEBUG,
                     format='%(levelname)s -- %(asctime)s -- %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S')
-logging.getLogger().addHandler(logging.StreamHandler())
+# logging.getLogger().addHandler(logging.StreamHandler())
+
+
+# Custom logger class with multiple destinations
+class ColoredHandler(logging.Handler):
+    LEVEL_TO_COLOR = {
+        0: '\033[0;36m',
+        10: '\033[0;34m',
+        20: '\033[1;m',
+        30: '\033[0;33m',
+        40: '\033[0;31m',
+        50: '\033[1;31m',
+    }
+    RESET = '\033[1;m'
+    FORMAT = '[%(datetime)s] [%(levelname)s] %(color)s%(message)s%(reset)s'
+    def handle(self, record):
+        color = ColoredHandler.LEVEL_TO_COLOR[record.levelno]
+        print(ColoredHandler.FORMAT % dict(
+            color=color,
+            reset=ColoredHandler.RESET,
+            datetime="",
+            message=record.msg % record.args,
+            levelname=record.levelname
+            ))
+
+logging.getLogger().addHandler(ColoredHandler())
+
 
 
 def parse_ssh_options(host):
@@ -34,7 +63,7 @@ def parse_ssh_options(host):
 
 
 def ssh(host, *cmd, **kwargs):
-    logging.info("Run %s:'%s'" % (host, "' '".join(cmd)))
+    logging.debug("Run %s:'%s'" % (host["host"], "' '".join(cmd)))
     if simulate:
         return True
     ssh_opts, sudo = parse_ssh_options(host)
@@ -46,7 +75,7 @@ def ssh(host, *cmd, **kwargs):
         return False
 
 def encrypt(gpg_key, filename):
-    logging.info("Encrypt %s" % filename)
+    logging.debug("Encrypt %s" % filename)
     if simulate:
         return True
     try:
@@ -58,13 +87,13 @@ def encrypt(gpg_key, filename):
 
 
 def backup(host, path):
-    logging.info("Backup of %s:/%s" % (host["host"], path))
+    logging.info("Backup of %s:%s" % (host["host"], path))
 
     if path.endswith('/'):
         outfile = "%s/%s-%s-%s.tgz" % (
             destdir, date, host['host'], path.replace('/', '-'))
         if incremental:
-            ok = ssh(host, "find", path, "-mtime", "-1.5", "|", "xargs", "tar", "--no-recursion", "cz", path, _out=outfile)
+            ok = ssh(host, "find", path, "-mtime", "-%f" % incremental, "|", "xargs", "tar", "--no-recursion", "cz", path, _out=outfile)
         else:
             ok = ssh(host, "tar", "cz", path, _out=outfile)
     else:
@@ -113,7 +142,7 @@ def get_all(host, what):
         yield i
 
 def backup_host(h):
-    logging.info("BACKUP %s", h)
+    logging.info("Backup host %s", h)
     host = h["host"]
     if '@' in host:
         host = host.split('@')[1]
@@ -143,30 +172,94 @@ def backup_host(h):
         post = shlex.split(post)
         ssh(h, *post)
 
+def help():
+    print("""\
+backup.py -- Simple backups -- v%(version)s
+
+Run:
+  backup.py [options] <destdir> [hosts]
+
+  [options] are optional
+  <destdir> is mandatory, and backup will create files based on the
+            date, hostname, dir/file
+  [hosts]   optional host list. If not exists, will use all from
+            `backup-plan.yaml`
+
+
+Needs a backup-plan.yaml with:
+  all: {pre, backup, post}
+  hostname: {pre, backup, post}
+
+  `all` will be executed for all hosts.
+
+Where {pre, backup, post} are lists of:
+  `pre`    commands to execute on the remote server before backup: setup
+  `backup` diretories (end with /) or files to backup
+  `post`   commands to execute on the remote server after backup: cleanup
+
+Options:
+    -h    | --help           -- Show this help
+    -v    | --version        -- Shows current version and exits
+    -i    | --incremental    -- Only changes since yesterday
+    --since=days             -- Only changes since `days` before. Can be float.
+    --dry | --simulate       -- Say what will be executed, but do not execute
+    --full                   -- Full backup (default)
+
+""" % dict(version=VERSION))
+
 
 def main():
     global simulate
     global destdir
     global incremental
 
+    OPTIONS = ("ih", ['since=', 'dry', 'simulate', 'help', 'full'])
+    try:
+        optlist, args = getopt.getopt(sys.argv[1:], *OPTIONS)
+        optlist = dict(optlist)
+    except getopt.GetoptError as e:
+        help()
+        print("Error: ", e)
+        print()
+        return
+    if not args or '-h' in optlist or '--help' in optlist:
+        help()
+        return
+    if '-v' in optlist or '--version' in optlist:
+        print(VERSION)
+        return
+
+    print(optlist)
+
+    destdir = args[0]
+    args = args[1:]
+
     logging.info("---- STARTING NEW BACKUP ----")
-    destdir = sys.argv[1]
     assert os.path.isdir(destdir), \
         "Need a backup directory file as first argument"
 
-    if '--simulate' in sys.argv:
-        sys.argv = [x for x in sys.argv if x != '--simulate']
+    if '--simulate' in optlist or '--dry' in optlist:
+        logging.info("Dry run.")
         simulate = True
 
-    if '--incremental' in sys.argv:
-        sys.argv = [x for x in sys.argv if x != '--incremental']
-        incremental = True
+    if '-i' in optlist or '--incremental' in optlist:
+        logging.info("Incremental simple")
+        incremental = 1
 
+    if '--since=' in optlist:
+        days = float(optlist["--since="])
+        logging.info("Since %f days ago" % days)
+        incremental = days
 
-    if len(sys.argv) > 2:
-        hosts = [parse_host_line(x) for x in sys.argv[2:]]
+    if '--full' in optlist:
+        incremental = False
+
+    if args:
+        hosts = [parse_host_line(x) for x in args]
     else:
         hosts = read_hosts_file("hosts")
+
+    logging.info("Will backup %s" % [x["host"] for x in hosts])
 
     for h in hosts:
         backup_host(h)
