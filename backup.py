@@ -36,6 +36,7 @@ class ColoredHandler(logging.Handler):
     }
     RESET = '\033[1;m'
     FORMAT = '{levelname:5} -- {datetime} -- {color}{message}{reset}'
+
     def handle(self, record):
         color = ColoredHandler.LEVEL_TO_COLOR[record.levelno]
         try:
@@ -48,10 +49,9 @@ class ColoredHandler(logging.Handler):
             datetime=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             message=message,
             levelname=record.levelname
-            ))
+        ))
 
 logging.getLogger().addHandler(ColoredHandler())
-
 
 
 def parse_ssh_options(host):
@@ -78,6 +78,7 @@ def ssh(host, *cmd, **kwargs):
         logging.error("Error executing SSH %s -- '%s': %s" % (host, "' '".join(cmd), e))
         return False
 
+
 def encrypt(gpg_key, filename):
     logging.info("Encrypt %s" % filename)
     if simulate:
@@ -97,7 +98,8 @@ def backup(host, path):
         outfile = "%s/%s-%s-%s.tgz" % (
             destdir, date, host['host'], path.replace('/', '-'))
         if incremental:
-            ok = ssh(host, "find", path, "-mtime", "-%f" % incremental, "|", "xargs", "tar", "--no-recursion", "cz", path, _out=outfile)
+            ok = ssh(host, "find", path, "-mtime", "-%f" % incremental, "|",
+                     "xargs", "tar", "--no-recursion", "cz", path, _out=outfile)
         else:
             ok = ssh(host, "tar", "cz", path, _out=outfile)
     else:
@@ -115,6 +117,7 @@ def backup(host, path):
             logging.warning("FILE NOT CREATED")
 
     return outfile
+
 
 def parse_host_line(line):
     line = line.split()
@@ -144,6 +147,7 @@ def get_all(host, what):
         yield i
     for i in (BACKUP_PLAN.get(host) or {}).get(what, []):
         yield i
+
 
 def backup_host(h):
     logging.info("Backup host %s", h)
@@ -175,6 +179,7 @@ def backup_host(h):
     for post in get_all(host, 'post'):
         post = shlex.split(post)
         ssh(h, *post)
+
 
 def help():
     print("""\
