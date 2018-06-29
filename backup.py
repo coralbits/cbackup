@@ -66,17 +66,22 @@ def parse_ssh_options(host):
     return (ssh_opts, sudo)
 
 
-def ssh(host, *cmd, **kwargs):
-    logging.info("Run %s:'%s'" % (host["host"], "' '".join(cmd)))
+def ssh(host, *cmd, simulate=None, **kwargs):
+    logging.info("Run %s:'%s' (...) // %s" % (
+        host["host"], "' '".join(cmd[:10]), kwargs))
+    if simulate is None:
+        simulate = globals()['simulate']
+
     if simulate:
         return True
+
     ssh_opts, sudo = parse_ssh_options(host)
     try:
-        sh.ssh(*ssh_opts, "--", *sudo, *cmd, **kwargs)
-        return True
+        return sh.ssh(*ssh_opts, "--", *sudo, *cmd, **kwargs)
     except Exception as e:
         logging.error(
-            "Error executing SSH %s -- '%s': %s" % (host, "' '".join(cmd), e))
+            "Error %d executing SSH %s -- '%s': %s" % (
+                e.exit_code, host, "' '".join(cmd), e))
         return False
 
 
@@ -92,7 +97,11 @@ def encrypt(gpg_key, filename):
         traceback.print_exc()
 
 
-def backup(host, path):
+def warn_strip(s):
+    logging.warn(s.strip())
+
+
+def backup(host, path, gpg_key=None):
     logging.info("Backup of %s:%s" % (host["host"], path))
 
     if path.endswith('/'):
@@ -103,19 +112,74 @@ def backup(host, path):
                      "xargs", "tar", "--no-recursion", "cz", path, _out=outfile)
         else:
             ok = ssh(host, "tar", "cz", path, _out=outfile)
+        tar = True
     else:
         outfile = "%s/%s-%s-%s" % (
             destdir, date, host['host'], path.replace('/', '-'),
         )
-        ok = ssh(host, "cat", path, _out=outfile)
+        tar = False
 
-    if ok and not simulate:
+    if gpg_key:
+        genopts = dict(_piped=True)
+    else:
+        genopts = dict(_out=outfile)
+
+    if tar:
+        if incremental:
+            findcmd = ssh(
+                host,
+                "find", path, "-type", "f", "-mtime", "-%f" % incremental,
+                _ok_code=[0, 1], simulate=False)
+            files = [x for x in findcmd.stdout.decode('utf8').split('\n') if x]
+            logging.info("Backup of %s files" % len(files))
+            if files:
+                gencmd = ssh(
+                    host,
+                    "tar", "--no-recursion", "-cz", *files,
+                    _err=warn_strip, **genopts)
+            else:
+                logging.info("No files to backup. Skipping.")
+                return False
+        else:
+            gencmd = ssh(
+                host, "tar", "cz", path, _err=warn_strip, **genopts)
+    else:
+        gencmd = ssh(host, "cat", path, _err=warn_strip, **genopts)
+
+    ok = True
+    if gpg_key:
+        outfile = outfile + '.gpg'
+        if not simulate:
+            gpgout = sh.gpg2(
+                gencmd, "-e", "-r", gpg_key,
+                _err=warn_strip, _out=outfile)
+            gpgout.wait()
+            try:
+                ok = (gpgout.exit_code == 0) and (gencmd.exit_code == 0)
+            except sh.ErrorReturnCode_2:
+                logging.error("Partial backup. Some files missing.")
+                ok = True
+            except Exception as ex:
+                logging.error(type(ex))
+                ok = False
+    else:
+        gencmd.wait()
+        ok = (gencmd.exit_code == 0)
+
+    if not simulate:
         try:
             size = os.path.getsize(outfile)
-            assert size > 0
+            assert size > 256, "File too small."
             logging.info("%s -- %.2f MB" % (outfile, size / (1024 * 1024.0)))
         except Exception:
-            logging.warning("FILE NOT CREATED")
+            ok = False
+    else:
+        logging.info("Nothing created. In simulation mode.")
+        ok = True
+
+    if not ok:
+        logging.error("FILE NOT CREATED OR TOO SMALL")
+
 
     return outfile
 
@@ -161,20 +225,15 @@ def backup_host(h):
         pre = shlex.split(pre)
         ok = ok and ssh(h, *pre)
 
+    gpg_key = h.get('gpg_key')
+    if not gpg_key:
+        gpg_key = BACKUP_PLAN["all"].get("gpg_key")
+
     if not ok:
         logging.error("Do not perform backup for %s" % h)
     else:
         for path in get_all(host, 'paths'):
-            outfile = backup(h, path)
-            try:
-                os.unlink("%s.gpg" % outfile)
-            except Exception:
-                pass
-            gpg_key = h.get('gpg_key')
-            if not gpg_key:
-                gpg_key = BACKUP_PLAN["all"].get("gpg_key")
-            if gpg_key:
-                encrypt(gpg_key, outfile)
+            backup(h, path, gpg_key=gpg_key)
 
     # post always, as is cleanup
     for post in get_all(host, 'post'):
