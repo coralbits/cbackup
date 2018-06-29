@@ -16,6 +16,7 @@ simulate = False
 date = datetime.datetime.now().strftime("%Y%m%d")
 destdir = None
 incremental = False
+all_ok = True
 
 
 logging.basicConfig(filename='backups.log', level=logging.INFO,
@@ -55,7 +56,11 @@ class ColoredHandler(logging.Handler):
 logging.getLogger().addHandler(ColoredHandler())
 
 def parse_ssh_options(host):
-    ssh_opts = [host.get('host'), "-C"]
+    ssh_opts = [
+        host.get('host'), "-C",
+        "-o", "PreferredAuthentications=password",
+        "-o", "PubkeyAuthentication=no"
+    ]
     sudo = []
     if host.get('ansible_become', 'no') == 'yes':
         sudo = ["sudo"]
@@ -102,6 +107,7 @@ def warn_strip(s):
 
 
 def backup(host, path, gpg_key=None):
+    global all_ok
     logging.info("Backup of %s:%s" % (host["host"], path))
 
     if path.endswith('/'):
@@ -139,6 +145,7 @@ def backup(host, path, gpg_key=None):
                     _err=warn_strip, **genopts)
             else:
                 logging.info("No files to backup. Skipping.")
+                all_ok = False
                 return False
         else:
             gencmd = ssh(
@@ -162,6 +169,7 @@ def backup(host, path, gpg_key=None):
             except Exception as ex:
                 logging.error(type(ex))
                 ok = False
+                all_ok = False
     else:
         gencmd.wait()
         ok = (gencmd.exit_code == 0)
@@ -172,12 +180,14 @@ def backup(host, path, gpg_key=None):
             assert size > 256, "File too small."
             logging.info("%s -- %.2f MB" % (outfile, size / (1024 * 1024.0)))
         except Exception:
+            all_ok = False
             ok = False
     else:
         logging.info("Nothing created. In simulation mode.")
         ok = True
 
     if not ok:
+        all_ok = False
         logging.error("FILE NOT CREATED OR TOO SMALL")
 
 
@@ -215,6 +225,7 @@ def get_all(host, what):
 
 
 def backup_host(h):
+    global all_ok
     logging.info("Backup host %s", h)
     host = h["host"]
     if '@' in host:
@@ -227,6 +238,7 @@ def backup_host(h):
             logging.error(
                 "Error performing backup for %s:%s. "
                 "Might fail later." % (h, pre))
+            all_ok = False
 
     gpg_key = h.get('gpg_key')
     if not gpg_key:
@@ -290,15 +302,18 @@ def main():
         help()
         print("Error: ", e)
         print()
-        return
+        sys.exit(1)
     if not args or '-h' in optlist or '--help' in optlist:
         help()
         return
     if '-v' in optlist or '--version' in optlist:
         print(VERSION)
         return
-
-    print(optlist)
+    if any(x for x in args if x.startswith('--')):
+        help()
+        print("Error: All options should go at the beginning.")
+        print()
+        sys.exit(1)
 
     destdir = args[0]
     args = args[1:]
@@ -332,6 +347,11 @@ def main():
 
     for h in hosts:
         backup_host(h)
+
+    if all_ok:
+        sys.exit(0)
+    else:
+        sys.exit(1)
 
 
 if __name__ == '__main__':
