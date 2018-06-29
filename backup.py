@@ -220,20 +220,20 @@ def backup_host(h):
     if '@' in host:
         host = host.split('@')[1]
 
-    ok = True
     for pre in get_all(host, 'pre'):
         pre = shlex.split(pre)
-        ok = ok and ssh(h, *pre)
+        preok = ssh(h, *pre)
+        if not preok:
+            logging.error(
+                "Error performing backup for %s:%s. "
+                "Might fail later." % (h, pre))
 
     gpg_key = h.get('gpg_key')
     if not gpg_key:
         gpg_key = BACKUP_PLAN["all"].get("gpg_key")
 
-    if not ok:
-        logging.error("Do not perform backup for %s" % h)
-    else:
-        for path in get_all(host, 'paths'):
-            backup(h, path, gpg_key=gpg_key)
+    for path in get_all(host, 'paths'):
+        backup(h, path, gpg_key=gpg_key)
 
     # post always, as is cleanup
     for post in get_all(host, 'post'):
