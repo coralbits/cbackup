@@ -17,6 +17,7 @@ date = datetime.datetime.now().strftime("%Y%m%d")
 destdir = None
 incremental = False
 all_ok = True
+backup_plan = []
 
 
 logging.basicConfig(filename='backups.log', level=logging.INFO,
@@ -214,13 +215,10 @@ def read_hosts_file(filename):
     return ret
 
 
-BACKUP_PLAN = yaml.safe_load(open('backup-plan.yaml'))
-
-
 def get_all(host, what):
-    for i in (BACKUP_PLAN.get("all") or {}).get(what, []):
+    for i in (backup_plan.get("all") or {}).get(what, []):
         yield i
-    for i in (BACKUP_PLAN.get(host) or {}).get(what, []):
+    for i in (backup_plan.get(host) or {}).get(what, []):
         yield i
 
 
@@ -242,7 +240,7 @@ def backup_host(h):
 
     gpg_key = h.get('gpg_key')
     if not gpg_key:
-        gpg_key = BACKUP_PLAN["all"].get("gpg_key")
+        gpg_key = backup_plan["all"].get("gpg_key")
 
     for path in get_all(host, 'paths'):
         backup(h, path, gpg_key=gpg_key)
@@ -293,8 +291,9 @@ def main():
     global simulate
     global destdir
     global incremental
+    global backup_plan
 
-    OPTIONS = ("ih", ['since=', 'dry', 'simulate', 'help', 'full'])
+    OPTIONS = ("ih", ['since=', 'dry', 'simulate', 'help', 'full','p=', 'plan='])
     try:
         optlist, args = getopt.getopt(sys.argv[1:], *OPTIONS)
         optlist = dict(optlist)
@@ -315,6 +314,16 @@ def main():
         print()
         sys.exit(1)
 
+    print(optlist)
+    if '--plan' in optlist or '--p' in optlist:
+        planfile = optlist.get('--plan') or optlist.get('--p')
+    else:
+        planfile = os.path.join(os.path.dirname(__file__), 'backup-plan.yaml')
+    logging.info("Backup plan from %s" % planfile)
+    backup_plan = yaml.safe_load(open(planfile))
+
+
+
     destdir = args[0]
     args = args[1:]
 
@@ -330,8 +339,8 @@ def main():
         logging.info("Incremental simple")
         incremental = 1
 
-    if '--since=' in optlist:
-        days = float(optlist["--since="])
+    if '--since' in optlist:
+        days = float(optlist["--since"])
         logging.info("Since %f days ago" % days)
         incremental = days
 
