@@ -56,19 +56,21 @@ class ColoredHandler(logging.Handler):
 
 logging.getLogger().addHandler(ColoredHandler())
 
+
 def parse_ssh_options(host):
+    print(host)
     ssh_opts = [
         host.get('host'), "-C",
-        "-o", "PreferredAuthentications=password",
-        "-o", "PubkeyAuthentication=no"
+        # "-o", "PreferredAuthentications=password",
+        # "-o", "PubkeyAuthentication=no"
     ]
     sudo = []
-    if host.get('ansible_become', 'no') == 'yes':
-        sudo = ["sudo"]
-    if host.get('ansible_ssh_user'):
-        ssh_opts += ["-l", host.get('ansible_ssh_user')]
-    if host.get('ssh_port'):
-        ssh_opts += ["-p", host.get('ssh_port')]
+    if host.get('become'):
+        sudo = [host.get('become')]
+    if host.get('user'):
+        ssh_opts += ["-l", host.get('user')]
+    if host.get('port'):
+        ssh_opts += ["-p", host.get('port')]
     return (ssh_opts, sudo)
 
 
@@ -191,27 +193,24 @@ def backup(host, path, gpg_key=None):
         all_ok = False
         logging.error("FILE NOT CREATED OR TOO SMALL")
 
-
     return outfile
 
 
-def parse_host_line(line):
-    line = line.split()
-    ret = {"host": line[0]}
-    for optval in line[1:]:
-        opt, val = optval.split("=")
-        ret[opt] = val
+def host_auth(hostname):
+    user = None
+    if '@' in hostname:
+        user, hostname = hostname.split('@')
+    data = backup_plan.get(hostname)
+    return {
+        "host": hostname,
+        **data.get('auth', {})
+    }
 
-    return ret
 
-
-def read_hosts_file(filename):
+def read_all_auths():
     ret = []
-    for line in open(filename):
-        line = line.strip()
-        if not line or line.startswith('#') or line.startswith('['):
-            continue
-        ret.append(parse_host_line(line))
+    for i in backup_plan.keys():
+        ret.append(host_auth(i))
     return ret
 
 
@@ -293,7 +292,13 @@ def main():
     global incremental
     global backup_plan
 
-    OPTIONS = ("ih", ['since=', 'dry', 'simulate', 'help', 'full','p=', 'plan='])
+    OPTIONS = (
+        "ih",
+        [
+         'since=', 'dry', 'simulate', 'incremental',
+         'help', 'full', 'p=', 'plan='
+        ]
+    )
     try:
         optlist, args = getopt.getopt(sys.argv[1:], *OPTIONS)
         optlist = dict(optlist)
@@ -314,15 +319,12 @@ def main():
         print()
         sys.exit(1)
 
-    print(optlist)
     if '--plan' in optlist or '--p' in optlist:
         planfile = optlist.get('--plan') or optlist.get('--p')
     else:
         planfile = os.path.join(os.path.dirname(__file__), 'backup-plan.yaml')
     logging.info("Backup plan from %s" % planfile)
     backup_plan = yaml.safe_load(open(planfile))
-
-
 
     destdir = args[0]
     args = args[1:]
@@ -348,9 +350,9 @@ def main():
         incremental = False
 
     if args:
-        hosts = [parse_host_line(x) for x in args]
+        hosts = [host_auth(x) for x in args]
     else:
-        hosts = read_hosts_file("hosts")
+        hosts = read_all_auths()
 
     logging.info("Will backup %s" % [x["host"] for x in hosts])
 
