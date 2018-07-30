@@ -85,7 +85,7 @@ def ssh(host, *cmd, simulate=None, **kwargs):
 
     ssh_opts, sudo = parse_ssh_options(host)
     try:
-        return sh.ssh(*ssh_opts, "--", *sudo, *cmd, **kwargs)
+        return sh.ssh(*ssh_opts, "--", *sudo, *cmd, **kwargs, _out_bufsize=1024*1024, _no_err=True)
     except Exception as e:
         logging.error(
             "Error %d executing SSH %s -- '%s': %s" % (
@@ -129,7 +129,7 @@ def backup(host, path, gpg_key=None):
         tar = False
 
     if gpg_key:
-        genopts = dict(_piped=True)
+        genopts = dict(_piped="direct")
     else:
         genopts = dict(_out=outfile)
 
@@ -162,7 +162,7 @@ def backup(host, path, gpg_key=None):
         if not simulate:
             gpgout = sh.gpg2(
                 gencmd, "-e", "-r", gpg_key,
-                _err=warn_strip, _out=outfile)
+                _err=warn_strip, _out=outfile, _out_bufsize=1024*1024)
             gpgout.wait()
             try:
                 ok = (gpgout.exit_code == 0) and (gencmd.exit_code == 0)
@@ -201,6 +201,8 @@ def host_auth(hostname):
     if '@' in hostname:
         user, hostname = hostname.split('@')
     data = backup_plan.get(hostname)
+    if not data:
+        raise Exception("Unknown host %s" % hostname)
     return {
         "host": hostname,
         **data.get('auth', {})
