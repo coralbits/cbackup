@@ -234,7 +234,7 @@ def backup_host(h):
         if not preok:
             logging.error(
                 "Error performing backup for %s:%s. "
-                "Might fail later." % (h, pre))
+                "Might fail later. %s" % (h, pre, preok))
             all_ok = False
 
     gpg_key = h.get('gpg_key')
