@@ -359,7 +359,11 @@ def main():
     logging.info("Will backup %s" % [x["host"] for x in hosts])
 
     for h in hosts:
-        backup_host(h)
+        try:
+            backup_host(h)
+        except Exception as e:
+            traceback.print_exc()
+            logging.error("FATAL error on backup of %s: %s" % (str(h), str(e)))
 
     if all_ok:
         sys.exit(0)
