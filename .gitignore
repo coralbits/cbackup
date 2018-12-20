@@ -4,3 +4,4 @@
 *.retry
 *.log
 backup-plan.yaml
+testplan.yaml
