@@ -91,6 +91,6 @@ check_same  $TMPDIR/cbackup-dir/cbackup-date.txt $TMPDIR/recover/cbackup-date.tx
 recover localhost--tmp-cbackuptest--cbackup-dir-.tgz tgz
 check_same  $TMPDIR/cbackup-dir/cbackup-date.txt $TMPDIR/recover/tgz/$TMPDIR/cbackup-dir/cbackup-date.txt
 
-ip a | grep -v ltf > $TMPDIR/ipa
+ip a | grep -v lft > $TMPDIR/ipa
 recover localhost-network.status network.status
 check_same $TMPDIR/recover/network.status $TMPDIR/ipa

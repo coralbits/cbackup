@@ -114,21 +114,11 @@ def backup(host, path, gpg_key=None):
     logging.info("Backup of %s:%s" % (host["host"], path))
 
     if path.endswith('/'):
-        outfile = "%s/%s-%s-%s.tgz" % (
-            destdir, date, host['host'], path.replace('/', '-'))
+        outfile = "%s.tgz" % path
         tar = True
     else:
-        outfile = "%s/%s-%s-%s" % (
-            destdir, date, host['host'], path.replace('/', '-'),
-        )
+        outfile = path
         tar = False
-
-    if gpg_key:
-        logging.info("Encrypt with GPG key: %s" % gpg_key)
-        genopts = dict(_piped="direct")
-    else:
-        logging.info("No encryption.")
-        genopts = dict(_out=outfile)
 
     if tar:
         if incremental:
@@ -139,60 +129,20 @@ def backup(host, path, gpg_key=None):
             files = [x for x in findcmd.stdout.decode('utf8').split('\n') if x]
             logging.info("Backup of %s files" % len(files))
             if files:
-                gencmd = ssh(
+                return backup_stdout(
                     host,
-                    "tar", "--no-recursion", "-cz", *files,
-                    _err=warn_strip, **genopts)
+                    outfile,
+                    ["tar", "--no-recursion", "-cz", *files],
+                    gpg_key
+                )
             else:
                 logging.info("No files to backup. Skipping.")
                 all_ok = False
                 return False
         else:
-            gencmd = ssh(
-                host, "tar", "cz", path, _err=warn_strip, **genopts)
+            return backup_stdout(host, outfile, ["tar", "cz", path], gpg_key)
     else:
-        gencmd = ssh(host, "cat", path, _err=warn_strip, **genopts)
-
-    ok = True
-    if gpg_key:
-        outfile = outfile + '.gpg'
-        if not simulate:
-            gpgout = sh.gpg2(
-                gencmd, "-e", "-r", gpg_key,
-                _err=warn_strip, _out=outfile, _out_bufsize=1024*1024)
-            gpgout.wait()
-            try:
-                ok = (gpgout.exit_code == 0) and (gencmd.exit_code == 0)
-            except sh.ErrorReturnCode_2:
-                logging.error("Partial backup. Some files missing.")
-                ok = True
-            except Exception as ex:
-                logging.error(type(ex))
-                ok = False
-                all_ok = False
-    else:
-        gencmd.wait()
-        ok = (gencmd.exit_code == 0)
-
-    if not simulate:
-        try:
-            size = os.path.getsize(outfile)
-            logging.info("%s -- %.2f MB" % (outfile, size / (1024 * 1024.0)))
-            assert size != 0, "File empty!"
-            if size < 1024:
-                logging.warn("%s is TOO small! (%s bytes)" % (outfile, size))
-        except Exception:
-            all_ok = False
-            ok = False
-    else:
-        logging.info("Nothing created. In simulation mode.")
-        ok = True
-
-    if not ok:
-        all_ok = False
-        logging.error("FILE NOT CREATED OR TOO SMALL")
-
-    return outfile
+        return backup_stdout(host, outfile, ["cat", path], gpg_key)
 
 
 def backup_stdout(host, name, cmd, gpg_key=None):

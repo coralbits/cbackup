@@ -13,4 +13,4 @@ localhost:
   post:
     - rm -f /tmp/cbackup-date.txt
   stdout:
-    network.status: ip a | grep -v ltf 
+    network.status: ip a | grep -v lft 
