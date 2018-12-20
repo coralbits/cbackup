@@ -1,0 +1,35 @@
+# All other backups inherit from this, so default gpg key and paths are added
+all:
+  gpg_key: mygpgkeyid
+  paths:
+    - /etc/
+
+# For specific hosts, more data can be added, or the gpg_key changed
+# paths are added, so etc is always backed up
+localhost:
+  paths:
+  - /home/
+
+# This example uses an ip, authenticates as a specific user, uses sudo to
+# execute commands, and does a backup of a database
+# paths can be individual files, which are just gzip'ed and gpg'ed
+127.0.0.1:
+  auth:
+    user: dmoreno
+    become: sudo
+  pre:
+    - sudo -u postgres pg_dump database -f /tmp/database.sql
+  paths:
+    - /tmp/database.sql
+  post:
+    - rm -f /tmp/database.sql
+
+# This example uses directly the ouput of the pg_dump to create a backup (WIP)
+127.0.0.2:
+  gpg_key: anothergpgkey
+  auth:
+    user: dmoreno
+    become: sudo
+  stdout:
+    - name: database
+      sh: sudo -u postgres pg_dump database

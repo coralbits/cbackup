@@ -180,8 +180,10 @@ def backup(host, path, gpg_key=None):
     if not simulate:
         try:
             size = os.path.getsize(outfile)
-            assert size > 256, "File too small."
             logging.info("%s -- %.2f MB" % (outfile, size / (1024 * 1024.0)))
+            assert size != 0, "File empty!"
+            if size < 256:
+                logging.warn("%s is TOO small! (%s bytes)" % (outfile, size))
         except Exception:
             all_ok = False
             ok = False
@@ -210,9 +212,12 @@ def host_auth(hostname):
 
 
 def read_all_auths():
-    ret = []
-    for i in backup_plan.keys():
-        ret.append(host_auth(i))
+    ret = [
+        host_auth(i)
+        for i in backup_plan.keys()
+        if i != 'all'
+    ]
+
     return ret
 
 

@@ -1,4 +1,6 @@
 .*
+!.gitignore
 *~
 *.retry
 *.log
+backup-plan.yaml

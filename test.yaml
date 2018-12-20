@@ -1,0 +1,14 @@
+all:
+  gpg_key: GPGKEY
+  paths:
+    - /etc/hosts
+
+localhost:
+  pre:
+    - mkdir -p BACKUPDIR/cbackup-dir/
+    - date > BACKUPDIR/cbackup-dir/cbackup-date.txt
+  paths:
+    - BACKUPDIR/cbackup-dir/cbackup-date.txt
+    - BACKUPDIR/cbackup-dir/
+  post:
+    - rm -f /tmp/cbackup-date.txt
