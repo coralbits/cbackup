@@ -41,7 +41,7 @@ class ColoredHandler(logging.Handler):
         color = ColoredHandler.LEVEL_TO_COLOR[record.levelno]
         try:
             message = record.msg % record.args
-        except:
+        except Exception:
             message = record.msg
         print(ColoredHandler.FORMAT.format(
             color=color,
@@ -51,8 +51,8 @@ class ColoredHandler(logging.Handler):
             levelname=record.levelname
         ))
 
-logging.getLogger().addHandler(ColoredHandler())
 
+logging.getLogger().addHandler(ColoredHandler())
 
 def parse_ssh_options(host):
     ssh_opts = [host.get('host'), "-C"]
@@ -75,7 +75,8 @@ def ssh(host, *cmd, **kwargs):
         sh.ssh(*ssh_opts, "--", *sudo, *cmd, **kwargs)
         return True
     except Exception as e:
-        logging.error("Error executing SSH %s -- '%s': %s" % (host, "' '".join(cmd), e))
+        logging.error(
+            "Error executing SSH %s -- '%s': %s" % (host, "' '".join(cmd), e))
         return False
 
 
@@ -86,7 +87,7 @@ def encrypt(gpg_key, filename):
     try:
         sh.gpg2("-e", "-r", gpg_key, filename)
         os.unlink(filename)
-    except:
+    except Exception:
         logging.error("Could not encrypt %s" % filename)
         traceback.print_exc()
 
