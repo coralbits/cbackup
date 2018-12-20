@@ -233,7 +233,7 @@ def backup_host(h):
     for pre in get_all(host, 'pre'):
         pre = shlex.split(pre)
         preok = ssh(h, *pre)
-        if not preok:
+        if preok is False:
             logging.error(
                 "Error performing backup for %s:%s. "
                 "Might fail later. %s" % (h, pre, preok))
