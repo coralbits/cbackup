@@ -4,19 +4,20 @@ set -e
 
 TMPDIR=/tmp/cbackuptest/
 TESTPLAN=$TMPDIR/testplan.yaml
+GPG="$1"
 rm -rf $TMPDIR
 mkdir -p $TMPDIR
 
 # It needs SSH connection to localhost
 
-if [ ! "$1" ]; then
+if [ ! "$GPG" ]; then
   echo "Run with:"
   echo " $0 [TEST_GPG_KEY_ID]"
   echo "Or will be tested without GPG"
 
   grep -v "GPGKEY" test.yaml > $TESTPLAN
 else
-  sed 's/GPGKEY/'$1'/' test.yaml > $TESTPLAN
+  sed 's/GPGKEY/'$GPG'/' test.yaml > $TESTPLAN
 fi
 
 sed -i 's#BACKUPDIR#'$TMPDIR'#' $TESTPLAN
@@ -27,6 +28,11 @@ find $TMPDIR
 
 ./cbackup.py --plan $TESTPLAN $TMPDIR/backups/
 DATE=$( date +"%Y%m%d" )
+
+
+echo
+echo "Check created files"
+echo
 
 
 check_file(){
@@ -41,7 +47,21 @@ check_file localhost--etc-hosts
 check_file localhost--tmp-cbackuptest--cbackup-dir-cbackup-date.txt
 check_file localhost--tmp-cbackuptest--cbackup-dir-.tgz
 
+if [ "$GPG" ]; then
+  if [ -e "$TMPDIR/backups/$DATE-localhost--tmp-cbackuptest--cbackup-dir-.tgz" ]; then
+    echo "Created unencrypted file $TMPDIR/backups/$DATE-localhost--tmp-cbackuptest--cbackup-dir-.tgz!"
+    exit 1
+  fi
+fi
+
+echo
+echo "Try recover"
+echo
+
 recover(){
+  if [ "$GPG" ]; then
+    gpg -d $TMPDIR/backups/$DATE-$1.gpg > $TMPDIR/backups/$DATE-$1
+  fi
   if [ "$2" = "tgz" ]; then
     mkdir -p $TMPDIR/recover/$2
     tar xfz $TMPDIR/backups/$DATE-$1 -C $TMPDIR/recover/$2

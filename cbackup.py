@@ -116,11 +116,6 @@ def backup(host, path, gpg_key=None):
     if path.endswith('/'):
         outfile = "%s/%s-%s-%s.tgz" % (
             destdir, date, host['host'], path.replace('/', '-'))
-        if incremental:
-            ok = ssh(host, "find", path, "-mtime", "-%f" % incremental, "|",
-                     "xargs", "tar", "--no-recursion", "cz", path, _out=outfile)
-        else:
-            ok = ssh(host, "tar", "cz", path, _out=outfile)
         tar = True
     else:
         outfile = "%s/%s-%s-%s" % (
@@ -129,8 +124,10 @@ def backup(host, path, gpg_key=None):
         tar = False
 
     if gpg_key:
+        logging.info("Encrypt with GPG key: %s" % gpg_key)
         genopts = dict(_piped="direct")
     else:
+        logging.info("No encryption.")
         genopts = dict(_out=outfile)
 
     if tar:
@@ -182,7 +179,7 @@ def backup(host, path, gpg_key=None):
             size = os.path.getsize(outfile)
             logging.info("%s -- %.2f MB" % (outfile, size / (1024 * 1024.0)))
             assert size != 0, "File empty!"
-            if size < 256:
+            if size < 1024:
                 logging.warn("%s is TOO small! (%s bytes)" % (outfile, size))
         except Exception:
             all_ok = False
