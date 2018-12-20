@@ -46,6 +46,7 @@ check_file(){
 check_file localhost--etc-hosts
 check_file localhost--tmp-cbackuptest--cbackup-dir-cbackup-date.txt
 check_file localhost--tmp-cbackuptest--cbackup-dir-.tgz
+check_file localhost-network.status
 
 if [ "$GPG" ]; then
   if [ -e "$TMPDIR/backups/$DATE-localhost--tmp-cbackuptest--cbackup-dir-.tgz" ]; then
@@ -89,3 +90,7 @@ check_same  $TMPDIR/cbackup-dir/cbackup-date.txt $TMPDIR/recover/cbackup-date.tx
 
 recover localhost--tmp-cbackuptest--cbackup-dir-.tgz tgz
 check_same  $TMPDIR/cbackup-dir/cbackup-date.txt $TMPDIR/recover/tgz/$TMPDIR/cbackup-dir/cbackup-date.txt
+
+ip a | grep -v ltf > $TMPDIR/ipa
+recover localhost-network.status network.status
+check_same $TMPDIR/recover/network.status $TMPDIR/ipa

@@ -195,6 +195,65 @@ def backup(host, path, gpg_key=None):
     return outfile
 
 
+def backup_stdout(host, name, cmd, gpg_key=None):
+    global all_ok
+    outfile = "%s/%s-%s-%s" % (
+        destdir, date, host['host'], name.replace('/', '-'))
+    if gpg_key:
+        logging.info("Encrypt with GPG key: %s" % gpg_key)
+        genopts = dict(_piped="direct")
+        outfile = outfile+'.gpg'
+    else:
+        logging.info("No encryption.")
+        genopts = dict(_out=outfile)
+
+    if not isinstance(cmd, list):
+        cmd = shlex.split(cmd)
+
+    gencmd = ssh(host, *cmd, _err=warn_strip, **genopts)
+
+    ok = True
+    if gpg_key:
+        if not simulate:
+            gpgout = sh.gpg2(
+                gencmd, "-e", "-r", gpg_key,
+                _err=warn_strip, _out=outfile, _out_bufsize=1024*1024)
+            gpgout.wait()
+            try:
+                ok = (gpgout.exit_code == 0) and (gencmd.exit_code == 0)
+            except sh.ErrorReturnCode_2:
+                logging.error("Partial backup. Some files missing.")
+                ok = True
+            except Exception as ex:
+                logging.error(type(ex))
+                ok = False
+                all_ok = False
+    else:
+        gencmd.wait()
+        ok = (gencmd.exit_code == 0)
+
+    if not simulate:
+        try:
+            size = os.path.getsize(outfile)
+            logging.info("%s -- %.2f MB" % (outfile, size / (1024 * 1024.0)))
+            assert size != 0, "File empty!"
+            if size < 1024:
+                logging.warn("%s is TOO small! (%s bytes)" % (outfile, size))
+        except Exception:
+            all_ok = False
+            ok = False
+    else:
+        logging.info("Nothing created. In simulation mode.")
+        ok = True
+
+    if not ok:
+        all_ok = False
+        logging.error("FILE NOT CREATED OR TOO SMALL")
+
+    return outfile
+
+
+
 def host_auth(hostname):
     user = None
     if '@' in hostname:
@@ -225,6 +284,13 @@ def get_all(host, what):
         yield i
 
 
+def get_all_items(host, what):
+    for i in (backup_plan.get("all") or {}).get(what, {}).items():
+        yield i
+    for i in (backup_plan.get(host) or {}).get(what, {}).items():
+        yield i
+
+
 def backup_host(h):
     global all_ok
     logging.info("Backup host %s", h)
@@ -247,6 +313,9 @@ def backup_host(h):
 
     for path in get_all(host, 'paths'):
         backup(h, path, gpg_key=gpg_key)
+
+    for name, cmd in get_all_items(host, 'stdout'):
+        backup_stdout(h, name, cmd, gpg_key=gpg_key)
 
     # post always, as is cleanup
     for post in get_all(host, 'post'):

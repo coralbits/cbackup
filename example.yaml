@@ -31,5 +31,4 @@ localhost:
     user: dmoreno
     become: sudo
   stdout:
-    - name: database
-      sh: sudo -u postgres pg_dump database
+    database.sql: sudo -u postgres pg_dump database

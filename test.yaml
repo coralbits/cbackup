@@ -12,3 +12,5 @@ localhost:
     - BACKUPDIR/cbackup-dir/
   post:
     - rm -f /tmp/cbackup-date.txt
+  stdout:
+    network.status: ip a | grep -v ltf 

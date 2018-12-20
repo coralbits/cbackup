@@ -22,7 +22,7 @@ Create a yaml file with your backup plan at `backup-plan.yaml`:
 localhost:
   gpg_key: mygpgkeyid
   paths:
-  - /home/
+    - /home/
 ```
 
 This plan means just to connect via SSH to localhost, and do a tar.gz of
@@ -90,7 +90,5 @@ I really want to keep it simple, but these features would be cool to have:
 
 * `[host].host` to be able to do backups on other host, not the name of the
   backup.
-* `stdout` as described in the example. It does not do it yet.
-
 
 # Thats all!
