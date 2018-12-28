@@ -17,3 +17,13 @@ localhost:
     - rm -f /tmp/cbackup-date.txt
   stdout:
     network.status: ip a | grep -v lft
+
+willfail:
+  pre:
+    - false
+  paths:
+    - /etc/noperm
+  post:
+    - false more even
+  stdout:
+    mem: head -10 /dev/mem

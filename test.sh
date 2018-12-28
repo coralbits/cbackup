@@ -26,7 +26,7 @@ mkdir -p $TMPDIR/backups/
 
 find $TMPDIR
 
-./cbackup.py --plan $TESTPLAN $TMPDIR/backups/
+./cbackup.py --plan $TESTPLAN $TMPDIR/backups/ || true
 DATE=$( date +"%Y%m%d" )
 
 
@@ -81,6 +81,17 @@ check_same(){
   fi
 }
 
+result_code(){
+  if [ ! "$(grep ".*$1.*$2.*$3.*$4.*$5.*" $TMPDIR/email.html)" ]; then
+    error "Error on [$1] [$2] result not as expected: $*"
+  fi
+}
+not_result_code(){
+  if [ "$(grep ".*$1.*$2.*$3.*$4.*$5.*" $TMPDIR/email.html)" ]; then
+    error "Error on [$1] [$2] result as NOT expected: $*"
+  fi
+}
+
 mkdir -p $TMPDIR/recover/
 
 recover localhost--etc-hosts hosts
@@ -96,3 +107,12 @@ ip a | grep -v lft > $TMPDIR/ipa
 recover localhost-network.status network.status
 check_same $TMPDIR/recover/network.status $TMPDIR/ipa
 [ -e "$TMPDIR/email.html" ] || error "Missing email"
+
+result_code localhost pre mkdir OK
+result_code localhost pre date OK
+not_result_code localhost pre date OK "bytes"
+result_code localhost path /etc/hosts OK "bytes"
+result_code localhost path cbackup-dir OK "bytes"
+result_code willfail "*" "*" ERROR 
+result_code willfail noperm ERROR
+result_code willfail more ERROR

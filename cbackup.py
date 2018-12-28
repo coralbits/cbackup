@@ -9,6 +9,7 @@ import shlex
 import traceback
 import getopt
 import smtplib
+import html
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -31,7 +32,7 @@ logging.basicConfig(filename='backups.log', level=logging.INFO,
 
 
 # Custom logger class with multiple destinations
-class ColoredHandler(logging.Handler):
+class ColoredHandlerAndKeep(logging.Handler):
     LEVEL_TO_COLOR = {
         0: '\033[0;36m',
         10: '\033[0;34m',
@@ -43,22 +44,28 @@ class ColoredHandler(logging.Handler):
     RESET = '\033[1;m'
     FORMAT = '{levelname:5} -- {datetime} -- {color}{message}{reset}'
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.keep = []
+
     def handle(self, record):
-        color = ColoredHandler.LEVEL_TO_COLOR[record.levelno]
+        color = ColoredHandlerAndKeep.LEVEL_TO_COLOR[record.levelno]
         try:
             message = record.msg % record.args
         except Exception:
             message = record.msg
-        print(ColoredHandler.FORMAT.format(
+        self.keep.append(message)
+        print(ColoredHandlerAndKeep.FORMAT.format(
             color=color,
-            reset=ColoredHandler.RESET,
+            reset=ColoredHandlerAndKeep.RESET,
             datetime=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             message=message,
             levelname=record.levelname
         ))
 
 
-logging.getLogger().addHandler(ColoredHandler())
+log_handler = ColoredHandlerAndKeep()
+logging.getLogger().addHandler(log_handler)
 
 
 def parse_ssh_options(host):
@@ -207,7 +214,7 @@ def backup_stdout(host, name, cmd, gpg_key=None):
         all_ok = False
         logging.error("[%s] FILE NOT CREATED OR TOO SMALL" % hostname)
 
-    return outfile
+    return (ok and outfile, size)
 
 
 def host_auth(hostname):
@@ -256,7 +263,7 @@ def backup_host(h):
     email = list(get_all(host, 'mailto'))
 
     for pre in get_all(host, 'pre'):
-        pre = shlex.split(pre)
+        pre = shlex.split(str(pre))
         preok = ssh(h, *pre)
         update_stats(email, host, "pre", pre, preok)
         if preok is False:
@@ -270,12 +277,12 @@ def backup_host(h):
         gpg_key = backup_plan["default"].get("gpg_key")
 
     for path in get_all(host, 'paths'):
-        res = backup(h, path, gpg_key=gpg_key)
-        update_stats(email, host, "path", path, res)
+        (res, size) = backup(h, path, gpg_key=gpg_key)
+        update_stats(email, host, "path", path, res is not False, size)
 
     for name, cmd in get_all_items(host, 'stdout'):
-        res = backup_stdout(h, name, cmd, gpg_key=gpg_key)
-        update_stats(email, host, "stdout", name, res)
+        (res, size) = backup_stdout(h, name, cmd, gpg_key=gpg_key)
+        update_stats(email, host, "stdout", name, res is not False, size)
 
     # post always, as is cleanup
     for post in get_all(host, 'post'):
@@ -288,19 +295,21 @@ def backup_host(h):
             all_ok = False
 
 
-def update_stats(emails, host, area, name, result):
+def update_stats(emails, host, area, name, result, size=None):
     if isinstance(name, list):
         name = ' '.join(str(x) for x in name)
+
+    data = {
+        "host": host,
+        "area": area,
+        "name": name,
+        "result": not (result is False),
+        "size": size
+    }
     for email in emails:
-        emaild = stats.get(email, {})
-        hostd = emaild.get(host, {})
-        aread = hostd.get(area, {})
-
-        aread[name] = not (result is False)
-
-        hostd[area] = aread
-        emaild[host] = hostd
-        stats[email] = emaild
+        emails = stats.get(email, list())
+        emails.append(data)
+        stats[email] = emails
 
 
 def help():
@@ -342,31 +351,38 @@ Options:
 """ % dict(version=VERSION))
 
 
+def pretty_size(size, postfixes=["bytes", "kib", "MiB", "GiB", "TiB"]):
+    if size < 1024:
+        return "%s %s" % (size, postfixes[0])
+    return pretty_size(size / 1024, postfixes[1:])
+
+
 def email_stats():
-    import json
-    print(json.dumps(stats, indent=2))
     for email, emaild in stats.items():
         table = "<table style='border-collapse: collapse; border: 1px solid #2185d0;'><thead>"
-        table += "<tr style='background: #2185d0; color:white; '><th>Host</th><th>Area</th><th>Item</th><th>Result</th></tr>"
-        table += "</thead>"
-        for host, hostd in emaild.items():
-            for area, aread in hostd.items():
-                for name, result in aread.items():
-                    table += "<tr style='border: 1px solid #2185d0;'>"
-                    table += "<td style='border: 1px solid #2185d0; padding: 5px;'>%s</td>" % host
-                    table += "<td style='border: 1px solid #2185d0; padding: 5px;'>%s</td>" % area
-                    table += "<td style='border: 1px solid #2185d0; padding: 5px;'>%s</td>" % name
-                    if result:
-                        table += "<td style='border: 1px solid #2185d0; padding: 5px; background: #21ba45;''>%s</td>" % result
-                    else:
-                        table += "<td style='border: 1px solid #2185d0; padding: 5px; background: #db2828;'>%s</td>" % result
-                    table += "</tr>"
+        table += "<tr style='background: #2185d0; color:white; '><th>Host</th><th>Area</th><th>Item</th><th>Result</th><th>Size</th></tr>"
+        table += "</thead>\n"
+        for items in emaild:
+            table += "<tr style='border: 1px solid #2185d0;'>"
+            table += "<td style='border: 1px solid #2185d0; padding: 5px;'>%s</td>" % items["host"]
+            table += "<td style='border: 1px solid #2185d0; padding: 5px;'>%s</td>" % items["area"]
+            table += "<td style='border: 1px solid #2185d0; padding: 5px;'>%s</td>" % items["name"]
+            if items["result"]:
+                table += "<td style='border: 1px solid #2185d0; padding: 5px; background: #21ba45;''>OK</td>"
+            else:
+                table += "<td style='border: 1px solid #2185d0; padding: 5px; background: #db2828;'>ERROR</td>"
+            if items["size"]:
+                table += "<td style='border: 1px solid #2185d0; padding: 5px;'>%s</td>" % pretty_size(items["size"])
+            table += "</tr>\n"
         table += "</table>"
 
-        html = "<div style='font-family: Sans Serif;'>"
-        html += "<div style='padding-bottom: 20px;'>Backup results at %s</div>" % datetime.datetime.now()
-        html += table
-        html += "</div>"
+        htmld = "<div style='font-family: Sans Serif;'>"
+        htmld += "<div style='padding-bottom: 20px;'>Backup results at %s</div>" % datetime.datetime.now()
+        htmld += table
+
+        htmld += "<hr><pre>%s</pre>" % html.escape('\n'.join(log_handler.keep))
+
+        htmld += "</div>"
 
         title = "Backup results for %s: %s" % (datetime.date.today(), "Ok" if all_ok else "Error")
 
@@ -383,13 +399,13 @@ def email_stats():
             msg['To'] = email
             msg['Subject'] = title
 
-            msg.attach(MIMEText(html, 'html'))
+            msg.attach(MIMEText(htmld, 'html'))
 
             server.sendmail(smtp.get("username", "backups"), email, msg.as_string())
             server.quit()
         else:
             with open(email, 'w') as fd:
-                fd.write("<h1>%s</h1>%s" % (title, html))
+                fd.write("<h1>%s</h1>%s" % (title, htmld))
             logging.info("Backup statistics created at %s" % email)
 
 
@@ -472,10 +488,12 @@ def main():
         try:
             backup_host(h)
         except Exception as e:
+            update_stats(backup_plan.get("default", {}).get("mailto", []), h["host"], "*", "*", False)
             traceback.print_exc()
             logging.error("FATAL error on backup of %s: %s" % (str(h), str(e)))
 
-    email_stats()
+    if not simulate:
+        email_stats()
     if all_ok:
         sys.exit(0)
     else:
