@@ -8,6 +8,9 @@ import logging
 import shlex
 import traceback
 import getopt
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 VERSION = '0.1'
 
@@ -18,6 +21,7 @@ destdir = None
 incremental = False
 all_ok = True
 backup_plan = []
+stats = {}  # Will put here all stats
 
 
 logging.basicConfig(filename='backups.log', level=logging.INFO,
@@ -249,14 +253,16 @@ def backup_host(h):
     host = h["host"]
     if '@' in host:
         host = host.split('@')[1]
+    email = list(get_all(host, 'mailto'))
 
     for pre in get_all(host, 'pre'):
         pre = shlex.split(pre)
         preok = ssh(h, *pre)
+        update_stats(email, host, "pre", pre, preok)
         if preok is False:
             logging.error(
-                "[%s] Error performing backup for %s:%s. "
-                "Might fail later. %s" % (h, h, pre, preok))
+                "[%s] Error performing pre step for %s:%s. "
+                "Might fail later." % (h, h, pre))
             all_ok = False
 
     gpg_key = h.get('gpg_key')
@@ -264,15 +270,37 @@ def backup_host(h):
         gpg_key = backup_plan["default"].get("gpg_key")
 
     for path in get_all(host, 'paths'):
-        backup(h, path, gpg_key=gpg_key)
+        res = backup(h, path, gpg_key=gpg_key)
+        update_stats(email, host, "path", path, res)
 
     for name, cmd in get_all_items(host, 'stdout'):
-        backup_stdout(h, name, cmd, gpg_key=gpg_key)
+        res = backup_stdout(h, name, cmd, gpg_key=gpg_key)
+        update_stats(email, host, "stdout", name, res)
 
     # post always, as is cleanup
     for post in get_all(host, 'post'):
         post = shlex.split(post)
-        ssh(h, *post)
+        post_ok = ssh(h, *post)
+        update_stats(email, host, "post", post, post_ok)
+        if post_ok is False:
+            logging.error(
+                "[%s] Error performing post step for %s:%s" % (h, h, pre))
+            all_ok = False
+
+
+def update_stats(emails, host, area, name, result):
+    if isinstance(name, list):
+        name = ' '.join(str(x) for x in name)
+    for email in emails:
+        emaild = stats.get(email, {})
+        hostd = emaild.get(host, {})
+        aread = hostd.get(area, {})
+
+        aread[name] = not (result is False)
+
+        hostd[area] = aread
+        emaild[host] = hostd
+        stats[email] = emaild
 
 
 def help():
@@ -300,6 +328,8 @@ Where {pre, backup, post} are lists of:
   `paths`  directories (end with /) or files to backup
   `post`   commands to execute on the remote server after backup: cleanup
   `stdout` dictionary of command to capture stdout for backup, for example pg_dump
+  `email`  Comma separated email address to send an email on completion. Can
+           set a file name to keep a local copy.
 
 Options:
     -h    | --help           -- Show this help
@@ -312,7 +342,58 @@ Options:
 """ % dict(version=VERSION))
 
 
-def main():
+def email_stats():
+    import json
+    print(json.dumps(stats, indent=2))
+    for email, emaild in stats.items():
+        table = "<table style='border-collapse: collapse; border: 1px solid #2185d0;'><thead>"
+        table += "<tr style='background: #2185d0; color:white; '><th>Host</th><th>Area</th><th>Item</th><th>Result</th></tr>"
+        table += "</thead>"
+        for host, hostd in emaild.items():
+            for area, aread in hostd.items():
+                for name, result in aread.items():
+                    table += "<tr style='border: 1px solid #2185d0;'>"
+                    table += "<td style='border: 1px solid #2185d0; padding: 5px;'>%s</td>" % host
+                    table += "<td style='border: 1px solid #2185d0; padding: 5px;'>%s</td>" % area
+                    table += "<td style='border: 1px solid #2185d0; padding: 5px;'>%s</td>" % name
+                    if result:
+                        table += "<td style='border: 1px solid #2185d0; padding: 5px; background: #21ba45;''>%s</td>" % result
+                    else:
+                        table += "<td style='border: 1px solid #2185d0; padding: 5px; background: #db2828;'>%s</td>" % result
+                    table += "</tr>"
+        table += "</table>"
+
+        html = "<div style='font-family: Sans Serif;'>"
+        html += "<div style='padding-bottom: 20px;'>Backup results at %s</div>" % datetime.datetime.now()
+        html += table
+        html += "</div>"
+
+        title = "Backup results for %s: %s" % (datetime.date.today(), "Ok" if all_ok else "Error")
+
+        if '@' in email:
+            logging.info("Send email statistics to %s" % email)
+            smtp = backup_plan["default"].get("smtp", {})
+            server = smtplib.SMTP(smtp.get("hostname", "localhost"), smtp.get("port", 587))
+            if smtp.get("tls", True):
+                server.starttls()
+            if smtp.get("username"):
+                server.login(smtp.get("username"), smtp.get("password"))
+            msg = MIMEMultipart()
+            msg['From'] = smtp.get("username", "backups")
+            msg['To'] = email
+            msg['Subject'] = title
+
+            msg.attach(MIMEText(html, 'html'))
+
+            server.sendmail(smtp.get("username", "backups"), email, msg.as_string())
+            server.quit()
+        else:
+            with open(email, 'w') as fd:
+                fd.write("<h1>%s</h1>%s" % (title, html))
+            logging.info("Backup statistics created at %s" % email)
+
+
+def parse_options():
     global simulate
     global destdir
     global incremental
@@ -374,9 +455,14 @@ def main():
 
     if '--full' in optlist:
         incremental = False
+    return args
 
-    if args:
-        hosts = [host_auth(x) for x in args]
+
+def main():
+    hosts = parse_options()
+
+    if hosts:
+        hosts = [host_auth(x) for x in hosts]
     else:
         hosts = read_all_auths()
 
@@ -389,6 +475,7 @@ def main():
             traceback.print_exc()
             logging.error("FATAL error on backup of %s: %s" % (str(h), str(e)))
 
+    email_stats()
     if all_ok:
         sys.exit(0)
     else:

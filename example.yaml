@@ -4,6 +4,16 @@ all:
   paths:
     - /etc/
 
+  mailto:
+    - example@example.org
+
+  smtp:
+    hostname: smtp.example.org
+    port: 587
+    tls: true
+    username: example@example.org
+    password: mypassword
+
 # For specific hosts, more data can be added, or the gpg_key changed
 # paths are added, so etc is always backed up
 localhost:

@@ -42,6 +42,12 @@ check_file(){
     exit 1
   fi
 }
+error(){
+  echo "\e[0;37;41m"
+  echo -n "$*"
+  echo "\e[0m"
+  exit 1
+}
 
 check_file localhost--etc-hosts
 check_file localhost--tmp-cbackuptest--cbackup-dir-cbackup-date.txt
@@ -50,8 +56,7 @@ check_file localhost-network.status
 
 if [ "$GPG" ]; then
   if [ -e "$TMPDIR/backups/$DATE-localhost--tmp-cbackuptest--cbackup-dir-.tgz" ]; then
-    echo "Created unencrypted file $TMPDIR/backups/$DATE-localhost--tmp-cbackuptest--cbackup-dir-.tgz!"
-    exit 1
+    error "Created unencrypted file $TMPDIR/backups/$DATE-localhost--tmp-cbackuptest--cbackup-dir-.tgz!"
   fi
 fi
 
@@ -72,13 +77,9 @@ recover(){
 }
 check_same(){
   if [ "$( cat $1 | sha1sum )" != "$( cat $2 | sha1sum )" ]; then
-    echo "Hosts files are not equal"
-    sha1sum $1
-    sha1sum $2
-    exit 1
+    error "Hosts files are not equal:\n$( sha1sum $1 $2)"
   fi
 }
-
 
 mkdir -p $TMPDIR/recover/
 
@@ -94,3 +95,4 @@ check_same  $TMPDIR/cbackup-dir/cbackup-date.txt $TMPDIR/recover/tgz/$TMPDIR/cba
 ip a | grep -v lft > $TMPDIR/ipa
 recover localhost-network.status network.status
 check_same $TMPDIR/recover/network.status $TMPDIR/ipa
+[ -e "$TMPDIR/email.html" ] || error "Missing email"

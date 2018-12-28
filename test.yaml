@@ -1,5 +1,6 @@
 default:
-  mailto: BACKUPDIR/test.html
+  mailto:
+    - BACKUPDIR/email.html
 
   gpg_key: GPGKEY
   paths:
