@@ -1,4 +1,6 @@
-all:
+default:
+  mailto: BACKUPDIR/test.html
+
   gpg_key: GPGKEY
   paths:
     - /etc/hosts
@@ -13,4 +15,4 @@ localhost:
   post:
     - rm -f /tmp/cbackup-date.txt
   stdout:
-    network.status: ip a | grep -v lft 
+    network.status: ip a | grep -v lft

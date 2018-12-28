@@ -75,8 +75,8 @@ def parse_ssh_options(host):
 
 
 def ssh(host, *cmd, simulate=None, **kwargs):
-    logging.info("Run %s:'%s' (...) // %s" % (
-        host["host"], "' '".join(cmd[:10]), kwargs))
+    logging.info("[%s] Run %s:'%s' (...) // %s" % (
+        host["host"], host["host"], "' '".join(cmd[:10]), kwargs))
     if simulate is None:
         simulate = globals()['simulate']
 
@@ -88,7 +88,8 @@ def ssh(host, *cmd, simulate=None, **kwargs):
         return sh.ssh(*ssh_opts, "--", *sudo, *cmd, **kwargs, _out_bufsize=1024*1024, _no_err=True)
     except Exception as e:
         logging.error(
-            "Error %d executing SSH %s -- '%s': %s" % (
+            "[%s] Error %d executing SSH %s -- '%s': %s" % (
+                host["host"],
                 e.exit_code, host, "' '".join(cmd), e))
         return False
 
@@ -111,7 +112,8 @@ def warn_strip(s):
 
 def backup(host, path, gpg_key=None):
     global all_ok
-    logging.info("Backup of %s:%s" % (host["host"], path))
+    hostname = host["host"]
+    logging.info("[%s] Backup of %s:%s" % (hostname, hostname, path))
 
     if path.endswith('/'):
         outfile = "%s.tgz" % path
@@ -127,7 +129,7 @@ def backup(host, path, gpg_key=None):
                 "find", path, "-type", "f", "-mtime", "-%f" % incremental,
                 _ok_code=[0, 1], simulate=False)
             files = [x for x in findcmd.stdout.decode('utf8').split('\n') if x]
-            logging.info("Backup of %s files" % len(files))
+            logging.info("[%s] Backup of %s files" % (hostname, len(files)))
             if files:
                 return backup_stdout(
                     host,
@@ -136,7 +138,7 @@ def backup(host, path, gpg_key=None):
                     gpg_key
                 )
             else:
-                logging.info("No files to backup. Skipping.")
+                logging.info("[%s] No files to backup. Skipping." % hostname)
                 all_ok = False
                 return False
         else:
@@ -147,14 +149,15 @@ def backup(host, path, gpg_key=None):
 
 def backup_stdout(host, name, cmd, gpg_key=None):
     global all_ok
+    hostname = host["host"]
     outfile = "%s/%s-%s-%s" % (
         destdir, date, host['host'], name.replace('/', '-'))
     if gpg_key:
-        logging.info("Encrypt with GPG key: %s" % gpg_key)
+        logging.info("[%s] Encrypt with GPG key: %s" % (hostname, gpg_key))
         genopts = dict(_piped="direct")
         outfile = outfile+'.gpg'
     else:
-        logging.info("No encryption.")
+        logging.info("[%s] No encryption." % hostname)
         genopts = dict(_out=outfile)
 
     if not isinstance(cmd, list):
@@ -172,10 +175,10 @@ def backup_stdout(host, name, cmd, gpg_key=None):
             try:
                 ok = (gpgout.exit_code == 0) and (gencmd.exit_code == 0)
             except sh.ErrorReturnCode_2:
-                logging.error("Partial backup. Some files missing.")
+                logging.error("[%s] Partial backup. Some files missing." % hostname)
                 ok = True
             except Exception as ex:
-                logging.error(type(ex))
+                logging.error("[%s] %s" % (hostname, type(ex)))
                 ok = False
                 all_ok = False
     else:
@@ -185,23 +188,22 @@ def backup_stdout(host, name, cmd, gpg_key=None):
     if not simulate:
         try:
             size = os.path.getsize(outfile)
-            logging.info("%s -- %.2f MB" % (outfile, size / (1024 * 1024.0)))
+            logging.info("[%s] %s -- %.2f MB" % (hostname, outfile, size / (1024 * 1024.0)))
             assert size != 0, "File empty!"
             if size < 1024:
-                logging.warn("%s is TOO small! (%s bytes)" % (outfile, size))
+                logging.warn("[%s] %s is TOO small! (%s bytes)" % (hostname, outfile, size))
         except Exception:
             all_ok = False
             ok = False
     else:
-        logging.info("Nothing created. In simulation mode.")
+        logging.info("[%s] Nothing created. In simulation mode." % hostname)
         ok = True
 
     if not ok:
         all_ok = False
-        logging.error("FILE NOT CREATED OR TOO SMALL")
+        logging.error("[%s] FILE NOT CREATED OR TOO SMALL" % hostname)
 
     return outfile
-
 
 
 def host_auth(hostname):
@@ -221,21 +223,21 @@ def read_all_auths():
     ret = [
         host_auth(i)
         for i in backup_plan.keys()
-        if i != 'all'
+        if i != 'default'
     ]
 
     return ret
 
 
 def get_all(host, what):
-    for i in (backup_plan.get("all") or {}).get(what, []):
+    for i in (backup_plan.get("default") or {}).get(what, []):
         yield i
     for i in (backup_plan.get(host) or {}).get(what, []):
         yield i
 
 
 def get_all_items(host, what):
-    for i in (backup_plan.get("all") or {}).get(what, {}).items():
+    for i in (backup_plan.get("default") or {}).get(what, {}).items():
         yield i
     for i in (backup_plan.get(host) or {}).get(what, {}).items():
         yield i
@@ -243,7 +245,7 @@ def get_all_items(host, what):
 
 def backup_host(h):
     global all_ok
-    logging.info("Backup host %s", h)
+    logging.info("[%s] Backup host %s", h, h)
     host = h["host"]
     if '@' in host:
         host = host.split('@')[1]
@@ -253,13 +255,13 @@ def backup_host(h):
         preok = ssh(h, *pre)
         if preok is False:
             logging.error(
-                "Error performing backup for %s:%s. "
-                "Might fail later. %s" % (h, pre, preok))
+                "[%s] Error performing backup for %s:%s. "
+                "Might fail later. %s" % (h, h, pre, preok))
             all_ok = False
 
     gpg_key = h.get('gpg_key')
     if not gpg_key:
-        gpg_key = backup_plan["all"].get("gpg_key")
+        gpg_key = backup_plan["default"].get("gpg_key")
 
     for path in get_all(host, 'paths'):
         backup(h, path, gpg_key=gpg_key)
@@ -288,15 +290,16 @@ Run:
 
 
 Needs a backup-plan.yaml with:
-  all: {pre, paths, post}
+  default: {pre, paths, post}
   hostname: {pre, paths, post}
 
-  `all` will be executed for all hosts.
+  `default` will be executed for all hosts.
 
 Where {pre, backup, post} are lists of:
   `pre`    commands to execute on the remote server before backup: setup
   `paths`  directories (end with /) or files to backup
   `post`   commands to execute on the remote server after backup: cleanup
+  `stdout` dictionary of command to capture stdout for backup, for example pg_dump
 
 Options:
     -h    | --help           -- Show this help
