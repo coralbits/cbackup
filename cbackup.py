@@ -327,8 +327,8 @@ Run:
 
 
 Needs a backup-plan.yaml with:
-  default: {pre, paths, post}
-  hostname: {pre, paths, post}
+  default: {pre, paths, post, mailto, smtp}
+  hostname: {pre, paths, post, mailto}
 
   `default` will be executed for all hosts.
 
@@ -339,6 +339,7 @@ Where {pre, backup, post} are lists of:
   `stdout` dictionary of command to capture stdout for backup, for example pg_dump
   `email`  Comma separated email address to send an email on completion. Can
            set a file name to keep a local copy.
+  `smtp`   hostname, port, tls, username and password for email sending.
 
 Options:
     -h    | --help           -- Show this help

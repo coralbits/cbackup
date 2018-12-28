@@ -48,7 +48,7 @@ More examples in the `example.yaml` file.
 
 ```
 $ ./cbackup.py
-backup.py -- Simple backups -- v0.1
+backup.py -- Simple backups -- v%(version)s
 
 Run:
   backup.py [options] <destdir> [hosts]
@@ -61,15 +61,19 @@ Run:
 
 
 Needs a backup-plan.yaml with:
-  all: {pre, paths, post}
-  hostname: {pre, paths, post}
+  default: {pre, paths, post, mailto, smtp}
+  hostname: {pre, paths, post, mailto}
 
-  `all` will be executed for all hosts.
+  `default` will be executed for all hosts.
 
 Where {pre, backup, post} are lists of:
   `pre`    commands to execute on the remote server before backup: setup
   `paths`  directories (end with /) or files to backup
   `post`   commands to execute on the remote server after backup: cleanup
+  `stdout` dictionary of command to capture stdout for backup, for example pg_dump
+  `email`  Comma separated email address to send an email on completion. Can
+           set a file name to keep a local copy.
+  `smtp`   hostname, port, tls, username and password for email sending.
 
 Options:
     -h    | --help           -- Show this help
