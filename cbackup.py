@@ -353,7 +353,7 @@ Options:
 
 def pretty_size(size, postfixes=["bytes", "kib", "MiB", "GiB", "TiB"]):
     if size < 1024:
-        return "%s %s" % (size, postfixes[0])
+        return "%d %s" % (size, postfixes[0])
     return pretty_size(size / 1024, postfixes[1:])
 
 
