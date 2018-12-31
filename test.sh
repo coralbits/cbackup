@@ -83,6 +83,11 @@ check_same(){
     error "Hosts files are not equal:\n$( sha1sum $1 $2)"
   fi
 }
+check_not_same(){
+  if [ "$( cat $1 | sha1sum )" = "$( cat $2 | sha1sum )" ]; then
+    error "Hosts files are equal:\n$( sha1sum $1 $2)"
+  fi
+}
 
 result_code(){
   if [ ! "$(grep ".*$1.*$2.*$3.*$4.*$5.*" $TMPDIR/email.html)" ]; then
@@ -91,6 +96,7 @@ result_code(){
 }
 not_result_code(){
   if [ "$(grep ".*$1.*$2.*$3.*$4.*$5.*" $TMPDIR/email.html)" ]; then
+    grep ".*$1.*$2.*$3.*$4.*$5.*" $TMPDIR/email.html
     error "Error on [$1] [$2] result as NOT expected: $*"
   fi
 }
@@ -110,16 +116,20 @@ ip a | grep -v lft > $TMPDIR/ipa
 recover localhost-network.status network.status
 check_same $TMPDIR/recover/network.status $TMPDIR/ipa
 [ -e "$TMPDIR/email.html" ] || error "Missing email"
+recover localhost-incremental incremental
+check_not_same $TMPDIR/recover/incremental /var/lib/dpkg/status
 
 result_code localhost pre mkdir OK
 result_code localhost pre date OK
-not_result_code localhost "*" "*" ERROR
+not_result_code localhost "\\*" "\\*" ERROR
 not_result_code localhost pre date OK "bytes"
 result_code localhost path /etc/hosts OK "bytes"
 result_code localhost path cbackup-dir OK "bytes"
-result_code willfail "*" "*" ERROR
+result_code localhost incremental ERROR
+# result_code willfail "\\*" "\\*" ERROR
 result_code willfail noperm ERROR
 result_code willfail more ERROR
+[ "$( grep 'Nothing to do not incremental' $TMPDIR/email.html )" ] || error "Should NOT be incremental"
 
 echo
 echo Incremental
@@ -129,12 +139,16 @@ echo
 
 [ "$( grep Incremental $TMPDIR/email.html )" ] || error "Missing Incremental mark at email"
 [ "$( grep Traceback $TMPDIR/email.html )" ] && error "Should not have any traceback"
+[ "$( grep 'Nothing to do not incremental' $TMPDIR/email.html)" ] && error "Should be incremental"
 
 result_code localhost pre mkdir OK
 result_code localhost pre date OK
-not_result_code localhost "*" "*" ERROR
+not_result_code localhost "\\*" "\\*" ERROR
 result_code localhost path /etc/hosts OK "bytes"
 result_code localhost path cbackup-dir OK "bytes"
-result_code willfail "*" "*" ERROR
+result_code localhost incremental OK
+# result_code willfail "\\*" "\\*" ERROR
 result_code willfail noperm ERROR
 result_code willfail more ERROR
+recover localhost-incremental incremental
+check_same $TMPDIR/recover/incremental /var/lib/dpkg/status

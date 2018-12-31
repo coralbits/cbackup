@@ -5,7 +5,7 @@ import datetime
 import os
 import yaml
 import logging
-import shlex
+import io
 import traceback
 import getopt
 import smtplib
@@ -49,16 +49,17 @@ class ColoredHandlerAndKeep(logging.Handler):
         self.keep = []
 
     def handle(self, record):
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         color = ColoredHandlerAndKeep.LEVEL_TO_COLOR[record.levelno]
         try:
             message = record.msg % record.args
         except Exception:
             message = record.msg
-        self.keep.append(message)
+        self.keep.append([now, record.levelno, message])
         print(ColoredHandlerAndKeep.FORMAT.format(
             color=color,
             reset=ColoredHandlerAndKeep.RESET,
-            datetime=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            datetime=now,
             message=message,
             levelname=record.levelname
         ))
@@ -85,9 +86,16 @@ def parse_ssh_options(host):
     return (ssh_opts, sudo)
 
 
-def ssh(host, *cmd, simulate=None, **kwargs):
+def ssh(host, script, simulate=None, **kwargs):
+    """
+    Executes on the remote host the script.
+
+    If simulate does nothing.
+
+    The script can be a str script (passed to sh) or a list directly executed.
+    """
     logging.info("[%s] Run %s:'%s' (...) // %s" % (
-        host["host"], host["host"], "' '".join(cmd[:10]), kwargs))
+        host["host"], host["host"], script[:10], kwargs))
     if simulate is None:
         simulate = globals()['simulate']
 
@@ -96,12 +104,33 @@ def ssh(host, *cmd, simulate=None, **kwargs):
 
     ssh_opts, sudo = parse_ssh_options(host)
     try:
-        return sh.ssh(*ssh_opts, "--", *sudo, *cmd, **kwargs, _out_bufsize=1024*1024, _no_err=True)
+        logio = io.StringIO()
+        if '_err' not in kwargs:
+            kwargs['_err'] = warn_strip(host["host"])
+        if isinstance(script, list):
+            return sh.ssh(
+                *ssh_opts,
+                "--", *sudo, *script,
+                **kwargs,
+                _out_bufsize=1024*1024, _in=script
+            )
+        else:
+            if incremental:
+                script = "INCREMENTAL=%s\n%s" % (incremental, script)
+            return sh.ssh(
+                *ssh_opts,
+                "--", *sudo, "/bin/sh",
+                **kwargs,
+                _out_bufsize=1024*1024, _in=script
+            )
+        logio.seek(0)
+        logging.info("[%s] stderr: %s" % (host["host"], logio.read()))
     except Exception as e:
         logging.error(
             "[%s] Error %d executing SSH %s -- '%s': %s" % (
                 host["host"],
-                e.exit_code, host, "' '".join(cmd), e))
+                e.exit_code, host, script, e)
+            )
         return False
 
 
@@ -117,8 +146,10 @@ def encrypt(gpg_key, filename):
         traceback.print_exc()
 
 
-def warn_strip(s):
-    logging.warn(s.strip())
+def warn_strip(hostname):
+    def warn(s):
+        logging.warn("[%s] [stderr] %s" % (hostname, s.strip()))
+    return warn
 
 
 def backup(host, path, gpg_key=None):
@@ -142,23 +173,14 @@ def backup(host, path, gpg_key=None):
 
     if tar:
         if incremental:
-            findcmd = ssh(
+            mtime = (datetime.datetime.now() - datetime.timedelta(days=incremental)).strftime("%Y%m%d")
+            logging.info("[%s] Backup of files since %s" % (hostname, mtime))
+            return backup_stdout(
                 host,
-                "find", path, "-type", "f", "-mtime", "-%f" % incremental,
-                _ok_code=[0, 1], simulate=False)
-            files = [x for x in findcmd.stdout.decode('utf8').split('\n') if x]
-            logging.info("[%s] Backup of %s files" % (hostname, len(files)))
-            if files:
-                return backup_stdout(
-                    host,
-                    outfile,
-                    ["tar", "--no-recursion", "-cz", *files],
-                    gpg_key
-                )
-            else:
-                logging.info("[%s] No files to backup. Skipping." % hostname)
-                all_ok = False
-                return (True, 0)
+                outfile,
+                ["tar", "--newer-mtime", mtime, "-cz", path],
+                gpg_key
+            )
         else:
             return backup_stdout(host, outfile, ["tar", "cz", path], gpg_key)
     else:
@@ -178,17 +200,14 @@ def backup_stdout(host, name, cmd, gpg_key=None):
         logging.info("[%s] No encryption." % hostname)
         genopts = dict(_out=outfile)
 
-    if not isinstance(cmd, list):
-        cmd = shlex.split(cmd)
-
-    gencmd = ssh(host, *cmd, _err=warn_strip, **genopts)
+    gencmd = ssh(host, cmd, **genopts)
 
     ok = True
     if gpg_key:
         if not simulate:
             gpgout = sh.gpg2(
                 gencmd, "-e", "-r", gpg_key,
-                _err=warn_strip, _out=outfile, _out_bufsize=1024*1024)
+                _out=outfile, _out_bufsize=1024*1024)
             gpgout.wait()
             try:
                 ok = (gpgout.exit_code == 0) and (gencmd.exit_code == 0)
@@ -270,13 +289,12 @@ def backup_host(h):
     email = list(get_all(host, 'mailto'))
 
     for pre in get_all(host, 'pre'):
-        pre = shlex.split(str(pre))
-        preok = ssh(h, *pre)
+        preok = ssh(h, pre)
         update_stats(email, host, "pre", pre, preok)
         if preok is False:
             logging.error(
                 "[%s] Error performing pre step for %s:%s. "
-                "Might fail later." % (h, h, pre))
+                "Might fail later." % (host, host, pre))
             all_ok = False
 
     gpg_key = h.get('gpg_key')
@@ -293,12 +311,11 @@ def backup_host(h):
 
     # post always, as is cleanup
     for post in get_all(host, 'post'):
-        post = shlex.split(post)
-        post_ok = ssh(h, *post)
+        post_ok = ssh(h, post)
         update_stats(email, host, "post", post, post_ok)
         if post_ok is False:
             logging.error(
-                "[%s] Error performing post step for %s:%s" % (h, h, pre))
+                "[%s] Error performing post step for %s:%s" % (host, host, pre))
             all_ok = False
 
 
@@ -366,6 +383,15 @@ def pretty_size(size, postfixes=["bytes", "kib", "MiB", "GiB", "TiB"]):
 
 
 def email_stats():
+    LEVEL_TO_COLOR = {
+        0: 'blue',
+        10: 'blue',
+        20: 'white',
+        30: '#fbbd08',
+        40: '#db2828',
+        50: '#db2828',
+    }
+
     for email, emaild in stats.items():
         table = "<table style='border-collapse: collapse; border: 1px solid #2185d0;'><thead>"
         table += "<tr style='background: #2185d0; color:white; '><th>Host</th><th>Area</th>"
@@ -389,9 +415,11 @@ def email_stats():
         htmld += "<div style='padding-bottom: 20px;'>Backup results at %s</div>" % datetime.datetime.now()
         htmld += table
 
-        htmld += "<hr><pre>%s</pre>" % html.escape('\n'.join(log_handler.keep))
+        htmld += "<hr><div style='background: #333;'>"
+        for dt, level, line in log_handler.keep:
+            htmld += "<pre style='color: %s; margin: 0;'>%s - %s</pre>\n" % (LEVEL_TO_COLOR[level], dt, line)
 
-        htmld += "</div>"
+        htmld += "</div></div>"
 
         title = "%sBackup results for %s: %s" % (
             "Incremental " if incremental else "",

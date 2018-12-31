@@ -17,10 +17,17 @@ localhost:
     - rm -f /tmp/cbackup-date.txt
   stdout:
     network.status: ip a | grep -v lft
+    incremental: |
+      if [ "$INCREMENTAL" ]; then
+        cat /var/lib/dpkg/status
+      else
+        echo "Nothing to do not incremental" > /dev/stderr
+        exit 1
+      fi
 
 willfail:
   pre:
-    - false
+    - "false"
   paths:
     - /etc/noperm
   post:
