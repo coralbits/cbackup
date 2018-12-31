@@ -27,6 +27,9 @@ mkdir -p $TMPDIR/backups/
 find $TMPDIR
 
 ./cbackup.py --plan $TESTPLAN $TMPDIR/backups/ || true
+
+[ "$( grep Traceback $TMPDIR/email.html )" ] && error "Should not have any traceback"
+
 DATE=$( date +"%Y%m%d" )
 
 
@@ -110,9 +113,28 @@ check_same $TMPDIR/recover/network.status $TMPDIR/ipa
 
 result_code localhost pre mkdir OK
 result_code localhost pre date OK
+not_result_code localhost "*" "*" ERROR
 not_result_code localhost pre date OK "bytes"
 result_code localhost path /etc/hosts OK "bytes"
 result_code localhost path cbackup-dir OK "bytes"
-result_code willfail "*" "*" ERROR 
+result_code willfail "*" "*" ERROR
+result_code willfail noperm ERROR
+result_code willfail more ERROR
+
+echo
+echo Incremental
+echo
+
+./cbackup.py -i --plan $TESTPLAN $TMPDIR/backups/ || true
+
+[ "$( grep Incremental $TMPDIR/email.html )" ] || error "Missing Incremental mark at email"
+[ "$( grep Traceback $TMPDIR/email.html )" ] && error "Should not have any traceback"
+
+result_code localhost pre mkdir OK
+result_code localhost pre date OK
+not_result_code localhost "*" "*" ERROR
+result_code localhost path /etc/hosts OK "bytes"
+result_code localhost path cbackup-dir OK "bytes"
+result_code willfail "*" "*" ERROR
 result_code willfail noperm ERROR
 result_code willfail more ERROR

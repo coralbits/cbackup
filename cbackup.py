@@ -122,6 +122,13 @@ def warn_strip(s):
 
 
 def backup(host, path, gpg_key=None):
+    """
+    Perform the backup of the given path (dir or file) using the given key
+
+    Returns a tuple (Result(True|False), FileSize).
+
+    FileSize will be 0 on empty incrementals.
+    """
     global all_ok
     hostname = host["host"]
     logging.info("[%s] Backup of %s:%s" % (hostname, hostname, path))
@@ -151,7 +158,7 @@ def backup(host, path, gpg_key=None):
             else:
                 logging.info("[%s] No files to backup. Skipping." % hostname)
                 all_ok = False
-                return False
+                return (True, 0)
         else:
             return backup_stdout(host, outfile, ["tar", "cz", path], gpg_key)
     else:
@@ -361,7 +368,8 @@ def pretty_size(size, postfixes=["bytes", "kib", "MiB", "GiB", "TiB"]):
 def email_stats():
     for email, emaild in stats.items():
         table = "<table style='border-collapse: collapse; border: 1px solid #2185d0;'><thead>"
-        table += "<tr style='background: #2185d0; color:white; '><th>Host</th><th>Area</th><th>Item</th><th>Result</th><th>Size</th></tr>"
+        table += "<tr style='background: #2185d0; color:white; '><th>Host</th><th>Area</th>"
+        table += "<th>Item</th><th>Result</th><th>Size</th></tr>"
         table += "</thead>\n"
         for items in emaild:
             table += "<tr style='border: 1px solid #2185d0;'>"
@@ -372,7 +380,7 @@ def email_stats():
                 table += "<td style='border: 1px solid #2185d0; padding: 5px; background: #21ba45;''>OK</td>"
             else:
                 table += "<td style='border: 1px solid #2185d0; padding: 5px; background: #db2828;'>ERROR</td>"
-            if items["size"]:
+            if items["size"] is not None:
                 table += "<td style='border: 1px solid #2185d0; padding: 5px;'>%s</td>" % pretty_size(items["size"])
             table += "</tr>\n"
         table += "</table>"
@@ -385,7 +393,11 @@ def email_stats():
 
         htmld += "</div>"
 
-        title = "Backup results for %s: %s" % (datetime.date.today(), "Ok" if all_ok else "Error")
+        title = "%sBackup results for %s: %s" % (
+            "Incremental " if incremental else "",
+            datetime.date.today(),
+            "Ok" if all_ok else "Error"
+        )
 
         if '@' in email:
             logging.info("Send email statistics to %s" % email)
