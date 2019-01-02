@@ -76,3 +76,10 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON SEQUENCES TO backup;
 
 The third line chooses which database is allowed. This asumes ident auth
 enabled. If not check the `~/.pgpass` file.
+
+## MySQL Backups
+
+```sql
+CREATE USER 'backup'@'localhost' IDENTIFIED BY 'secret';
+GRANT SELECT, SHOW VIEW, RELOAD, REPLICATION CLIENT, EVENT, TRIGGER ON *.* TO 'backup'@'localhost';
+```

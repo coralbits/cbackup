@@ -95,7 +95,7 @@ def ssh(host, script, simulate=None, **kwargs):
     The script can be a str script (passed to sh) or a list directly executed.
     """
     logging.info("[%s] Run %s:'%s' (...) // %s" % (
-        host["host"], host["host"], script[:10], kwargs))
+        host["host"], host["host"], script[:40], kwargs))
     if simulate is None:
         simulate = globals()['simulate']
 
@@ -226,8 +226,9 @@ def backup_stdout(host, name, cmd, gpg_key=None):
         try:
             size = os.path.getsize(outfile)
             logging.info("[%s] %s -- %.2f MB" % (hostname, outfile, size / (1024 * 1024.0)))
-            assert size != 0, "File empty!"
-            if size < 1024:
+            if size == 0:
+                logging.warn("[%s] %s is EMPTY!" % (hostname, outfile))
+            elif size < 1024:
                 logging.warn("[%s] %s is TOO small! (%s bytes)" % (hostname, outfile, size))
         except Exception:
             all_ok = False
@@ -238,7 +239,7 @@ def backup_stdout(host, name, cmd, gpg_key=None):
 
     if not ok:
         all_ok = False
-        logging.error("[%s] FILE NOT CREATED OR TOO SMALL" % hostname)
+        logging.error("[%s] THERE WAS SOME ERROR EXECUTING BACKUP COMMAND" % hostname)
 
     return (ok and outfile, size)
 
