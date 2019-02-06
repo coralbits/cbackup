@@ -25,6 +25,14 @@ backup_plan = []
 stats = {}  # Will put here all stats
 
 
+TAR_ERRORS = {
+    1:
+        "Modified while creating backup. "
+        "Used new file, but may not be consistent with other changes.",
+    2:
+        "Partial backup. Some files missing.",
+}
+
 logging.basicConfig(filename='backups.log', level=logging.INFO,
                     format='%(levelname)s -- %(asctime)s -- %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S')
@@ -179,15 +187,16 @@ def backup(host, path, gpg_key=None):
                 host,
                 outfile,
                 ["tar", "--newer-mtime", mtime, "-cz", path],
-                gpg_key
+                gpg_key,
+                error_codes=TAR_ERRORS,
             )
         else:
-            return backup_stdout(host, outfile, ["tar", "cz", path], gpg_key)
+            return backup_stdout(host, outfile, ["tar", "cz", path], gpg_key, error_codes=TAR_ERRORS)
     else:
         return backup_stdout(host, outfile, ["cat", path], gpg_key)
 
 
-def backup_stdout(host, name, cmd, gpg_key=None):
+def backup_stdout(host, name, cmd, gpg_key=None, error_codes={}):
     global all_ok
     hostname = host["host"]
     outfile = "%s/%s-%s-%s" % (
@@ -216,22 +225,31 @@ def backup_stdout(host, name, cmd, gpg_key=None):
             gpgout.wait()
             try:
                 ok = (gpgout.exit_code == 0) and (gencmd.exit_code == 0)
-            except sh.ErrorReturnCode_1:
-                logging.warn(
-                    "[%s] Modified while creating backup. "
-                    "Used new file, but may not be consistent with other changes." % hostname
-                )
-                ok = True
-            except sh.ErrorReturnCode_2:
-                logging.error("[%s] Partial backup. Some files missing." % hostname)
-                ok = True
             except Exception as ex:
-                logging.error("[%s] %s" % (hostname, ex))
-                ok = False
-                all_ok = False
+                if gpgout.exit_code != 0:
+                    ok = False
+                    logging.error("[%s] Error on GPG encryption" % hostname)
+                else:
+                    ok = False
+                    for err, msg in error_codes.items():
+                        if gencmd.exit_code == err:
+                            logging.warn(
+                                "[%s] %s" % (hostname, msg)
+                            )
+                            ok = True
+                    if not ok:
+                        logging.error("[%s] Error: %s" % (hostname, ex))
+                        all_ok = ok
     else:
         gencmd.wait()
-        ok = (gencmd.exit_code == 0)
+        if gencmd.exit_code != 0:
+            ok = False
+            for err, msg in error_codes.items():
+                if gencmd.exit_code == err:
+                    logging.warn(
+                        "[%s] %s" % (hostname, msg)
+                    )
+                    ok = True
 
     if not simulate:
         try:
