@@ -1,6 +1,8 @@
 # All other backups inherit from this, so default gpg key and paths are added
 all:
-  gpg_key: mygpgkeyid
+  gpg_key:
+    - mygpgkeyid
+    - anothergpgkey
   paths:
     - /etc/
 

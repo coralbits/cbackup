@@ -69,6 +69,18 @@ log_handler = ColoredHandlerAndKeep()
 logging.getLogger().addHandler(log_handler)
 
 
+def wrapped(maybe_list):
+    """
+    If passed a lsit returns the same list, if passed an element it is a list
+    with one element.
+    """
+    if maybe_list is None:
+        return []
+    if isinstance(maybe_list, (list, tuple)):
+        return maybe_list
+    return [maybe_list]
+
+
 def parse_ssh_options(host):
     print(host)
     ssh_opts = [
@@ -134,18 +146,6 @@ def ssh(host, script, simulate=None, **kwargs):
         return False
 
 
-def encrypt(gpg_key, filename):
-    logging.info("Encrypt %s" % filename)
-    if simulate:
-        return True
-    try:
-        sh.gpg2("-e", "-r", gpg_key, filename)
-        os.unlink(filename)
-    except Exception:
-        logging.error("Could not encrypt %s" % filename)
-        traceback.print_exc()
-
-
 def warn_strip(hostname):
     def warn(s):
         logging.warn("[%s] [stderr] %s" % (hostname, s.strip()))
@@ -205,8 +205,13 @@ def backup_stdout(host, name, cmd, gpg_key=None):
     ok = True
     if gpg_key:
         if not simulate:
+            recipients = [
+                x
+                for recipient in wrapped(gpg_key)
+                for x in ('-r', recipient)
+            ]
             gpgout = sh.gpg2(
-                gencmd, "-e", "-r", gpg_key,
+                gencmd, "-e", *recipients,
                 _out=outfile, _out_bufsize=1024*1024)
             gpgout.wait()
             try:
