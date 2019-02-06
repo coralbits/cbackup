@@ -216,11 +216,17 @@ def backup_stdout(host, name, cmd, gpg_key=None):
             gpgout.wait()
             try:
                 ok = (gpgout.exit_code == 0) and (gencmd.exit_code == 0)
+            except sh.ErrorReturnCode_1:
+                logging.warn(
+                    "[%s] Modified while creating backup. "
+                    "Used new file, but may not be consistent with other changes." % hostname
+                )
+                ok = True
             except sh.ErrorReturnCode_2:
                 logging.error("[%s] Partial backup. Some files missing." % hostname)
                 ok = True
             except Exception as ex:
-                logging.error("[%s] %s" % (hostname, type(ex)))
+                logging.error("[%s] %s" % (hostname, ex))
                 ok = False
                 all_ok = False
     else:
